@@ -1,0 +1,1183 @@
+<!DOCTYPE html>
+<html lang="es">
+<head>
+<meta charset="UTF-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1" />
+<meta name="theme-color" content="#1e3a8a" />
+<title>SICAD · Sistema Local de Control de Asistencia Docente</title>
+<link rel="preconnect" href="https://fonts.googleapis.com" />
+<link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800&display=swap" rel="stylesheet" />
+<script src="https://cdn.tailwindcss.com"></script>
+<script>
+  tailwind.config = { theme: { extend: { fontFamily: { sans: ['Inter', 'system-ui', 'sans-serif'] } } } };
+</script>
+<!-- Librerías cliente (todas gratuitas, open source) -->
+<script src="https://cdnjs.cloudflare.com/ajax/libs/jspdf/2.5.1/jspdf.umd.min.js"></script>
+<script src="https://cdnjs.cloudflare.com/ajax/libs/jspdf-autotable/3.8.2/jspdf.plugin.autotable.min.js"></script>
+<script src="https://cdn.jsdelivr.net/npm/xlsx@0.18.5/dist/xlsx.full.min.js"></script>
+<script src="https://cdn.jsdelivr.net/npm/chart.js@4.4.1/dist/chart.umd.min.js"></script>
+<script src="https://cdnjs.cloudflare.com/ajax/libs/qrcodejs/1.0.0/qrcode.min.js"></script>
+<script src="https://unpkg.com/html5-qrcode@2.3.8/html5-qrcode.min.js"></script>
+<style>
+  .tabular-nums { font-variant-numeric: tabular-nums; }
+  #qr-reader video { border-radius: .75rem; }
+  #qr-reader { border: none !important; }
+  .scan-line { animation: scan 1.4s ease-in-out infinite; }
+  @keyframes scan { 0%,100% { top: 10%; } 50% { top: 85%; } }
+  details > summary::-webkit-details-marker { display: none; }
+  .typing span { animation: blink 1s infinite; }
+  .typing span:nth-child(2) { animation-delay: .2s; } .typing span:nth-child(3) { animation-delay: .4s; }
+  @keyframes blink { 0%,100% { opacity: .2 } 50% { opacity: 1 } }
+</style>
+</head>
+<body class="bg-slate-100 text-slate-800 font-sans antialiased">
+
+<div class="min-h-screen lg:flex">
+  <!-- Sidebar -->
+  <aside class="hidden lg:flex lg:w-64 flex-col bg-slate-900 text-slate-300 fixed inset-y-0 left-0 z-40">
+    <div class="px-6 py-6 border-b border-white/10">
+      <div class="flex items-center gap-3">
+        <div class="w-10 h-10 rounded-xl bg-blue-600 grid place-items-center text-white font-extrabold">S</div>
+        <div>
+          <p class="text-white font-bold leading-tight">SICAD</p>
+          <p class="text-xs text-slate-400 leading-tight">Asistencia Docente</p>
+        </div>
+      </div>
+    </div>
+    <nav id="nav-side" class="flex-1 px-3 py-4 space-y-1" aria-label="Navegación principal"></nav>
+    <div class="px-6 py-4 border-t border-white/10 text-xs text-slate-400">
+      <p class="flex items-center gap-2"><span class="w-2 h-2 rounded-full bg-emerald-400"></span> Modo local · sin nube</p>
+      <p class="mt-1">Costo operativo: <span class="text-white font-semibold">S/ 0.00</span></p>
+    </div>
+  </aside>
+
+  <div class="flex-1 lg:ml-64 min-w-0">
+    <header class="sticky top-0 z-30 bg-white/90 backdrop-blur border-b border-slate-200">
+      <div class="px-4 md:px-6 py-3 flex items-center justify-between gap-4 max-w-7xl mx-auto">
+        <div class="min-w-0">
+          <h1 id="page-title" class="text-lg md:text-xl font-bold text-slate-900 truncate">Marcaje de asistencia</h1>
+          <p id="hdr-inst" class="text-xs text-slate-500 truncate"></p>
+        </div>
+        <div class="text-right shrink-0">
+          <p id="hdr-clock" class="text-lg font-bold text-blue-900 tabular-nums">--:--:--</p>
+          <p id="hdr-date" class="text-xs text-slate-500"></p>
+        </div>
+      </div>
+      <nav id="nav-mobile" class="lg:hidden flex gap-2 overflow-x-auto px-4 pb-3" aria-label="Navegación"></nav>
+    </header>
+
+    <main class="p-4 md:p-6 max-w-7xl mx-auto">
+
+      <!-- ===================== MÓDULO 2: MARCAJE ===================== -->
+      <section id="view-marcaje" class="view">
+        <div class="grid lg:grid-cols-5 gap-6">
+          <div class="lg:col-span-3 space-y-6">
+            <div class="bg-white rounded-2xl border border-slate-200 shadow-sm overflow-hidden">
+              <div class="bg-blue-900 text-white p-6 flex flex-wrap items-end justify-between gap-4">
+                <div>
+                  <p id="mk-date" class="text-blue-200 text-sm capitalize"></p>
+                  <p id="mk-clock" class="text-5xl md:text-6xl font-extrabold tabular-nums tracking-tight">--:--:--</p>
+                </div>
+                <div class="text-right">
+                  <p class="text-blue-200 text-xs uppercase tracking-wider">Hora límite de ingreso</p>
+                  <p id="mk-limit" class="text-2xl font-bold tabular-nums"></p>
+                  <span id="mk-window" class="inline-block mt-1 text-xs font-semibold px-2 py-1 rounded-full"></span>
+                </div>
+              </div>
+
+              <div class="p-4 md:p-6">
+                <div role="tablist" aria-label="Método de marcaje" class="grid grid-cols-3 gap-2 bg-slate-100 p-1 rounded-xl mb-6">
+                  <button role="tab" data-tab="dni" class="mk-tab py-2 rounded-lg text-sm font-semibold">DNI</button>
+                  <button role="tab" data-tab="qr" class="mk-tab py-2 rounded-lg text-sm font-semibold">Código QR</button>
+                  <button role="tab" data-tab="face" class="mk-tab py-2 rounded-lg text-sm font-semibold">Facial (IA)</button>
+                </div>
+
+                <!-- DNI -->
+                <div id="tab-dni" class="mk-panel" role="tabpanel">
+                  <form id="form-dni" class="space-y-3" autocomplete="off">
+                    <label for="in-dni" class="block text-sm font-semibold text-slate-700">Ingrese su DNI y presione <kbd class="px-1.5 py-0.5 bg-slate-100 border rounded text-xs">Enter</kbd></label>
+                    <div class="flex gap-3">
+                      <input id="in-dni" inputmode="numeric" maxlength="8" placeholder="########"
+                        class="flex-1 min-w-0 text-3xl md:text-4xl font-bold tracking-[0.3em] tabular-nums text-center border-2 border-slate-300 rounded-xl px-4 py-4 focus:outline-none focus:border-blue-700 focus:ring-4 focus:ring-blue-100" aria-describedby="dni-help" />
+                      <button class="px-6 rounded-xl bg-blue-900 hover:bg-blue-800 text-white font-bold">Marcar</button>
+                    </div>
+                    <p id="dni-help" class="text-xs text-slate-500">El primer marcaje del día registra la <b>ENTRADA</b>; el siguiente, la <b>SALIDA</b>.</p>
+                  </form>
+                </div>
+
+                <!-- QR -->
+                <div id="tab-qr" class="mk-panel hidden" role="tabpanel">
+                  <div class="grid sm:grid-cols-2 gap-4 items-start">
+                    <div class="bg-slate-900 rounded-xl aspect-square overflow-hidden relative">
+                      <div id="qr-reader" class="w-full h-full"></div>
+                      <div id="qr-placeholder" class="absolute inset-0 grid place-items-center text-slate-400 text-sm text-center p-4">Cámara apagada</div>
+                    </div>
+                    <div class="space-y-3">
+                      <p class="text-sm text-slate-600">Muestre el código QR del carnet docente frente a la cámara. Cada docente tiene su QR en <b>Docentes → QR</b>.</p>
+                      <div class="flex flex-wrap gap-2">
+                        <button id="qr-start" class="px-4 py-2 rounded-lg bg-blue-900 text-white text-sm font-semibold hover:bg-blue-800">Iniciar escáner</button>
+                        <button id="qr-stop" class="px-4 py-2 rounded-lg bg-slate-200 text-slate-800 text-sm font-semibold hover:bg-slate-300">Detener</button>
+                      </div>
+                      <label class="block">
+                        <span class="text-xs font-semibold text-slate-600">Sin cámara: leer QR desde imagen</span>
+                        <input id="qr-file" type="file" accept="image/*" class="mt-1 block w-full text-sm file:mr-3 file:py-2 file:px-3 file:rounded-lg file:border-0 file:bg-slate-100 file:font-semibold" />
+                      </label>
+                      <p id="qr-status" class="text-xs text-slate-500" aria-live="polite"></p>
+                    </div>
+                  </div>
+                </div>
+
+                <!-- FACIAL -->
+                <div id="tab-face" class="mk-panel hidden" role="tabpanel">
+                  <div class="grid sm:grid-cols-2 gap-4 items-start">
+                    <div class="relative bg-slate-900 rounded-xl aspect-[4/3] overflow-hidden">
+                      <video id="face-video" autoplay muted playsinline class="w-full h-full object-cover -scale-x-100"></video>
+                      <canvas id="face-canvas" class="absolute inset-0 w-full h-full -scale-x-100 pointer-events-none"></canvas>
+                      <div id="face-scan" class="hidden absolute inset-x-6 h-0.5 bg-emerald-400 shadow-[0_0_12px_#34d399] scan-line"></div>
+                      <div id="face-placeholder" class="absolute inset-0 grid place-items-center text-slate-400 text-sm text-center p-4">Cámara apagada</div>
+                    </div>
+                    <div class="space-y-3">
+                      <p class="text-sm text-slate-600">Reconocimiento facial local con <b>face-api.js</b>. Los rostros se procesan en este equipo; no se envían a ningún servidor.</p>
+                      <div class="flex flex-wrap gap-2">
+                        <button id="face-start" class="px-4 py-2 rounded-lg bg-blue-900 text-white text-sm font-semibold hover:bg-blue-800">Iniciar cámara</button>
+                        <button id="face-recognize" class="px-4 py-2 rounded-lg bg-emerald-600 text-white text-sm font-semibold hover:bg-emerald-700">Reconocer y marcar</button>
+                        <button id="face-stop" class="px-4 py-2 rounded-lg bg-slate-200 text-slate-800 text-sm font-semibold hover:bg-slate-300">Detener</button>
+                      </div>
+                      <p id="face-status" class="text-xs text-slate-500" aria-live="polite">Rostros registrados: 0</p>
+                      <div class="border-t pt-3">
+                        <p class="text-xs font-bold uppercase tracking-wider text-slate-500 mb-2">Modo simulación (sin cámara)</p>
+                        <div class="flex gap-2">
+                          <label for="face-sim" class="sr-only">Docente a simular</label>
+                          <select id="face-sim" class="flex-1 min-w-0 border border-slate-300 rounded-lg px-2 py-2 text-sm"></select>
+                          <button id="face-sim-btn" class="px-3 py-2 rounded-lg bg-slate-800 text-white text-sm font-semibold hover:bg-slate-700">Simular</button>
+                        </div>
+                      </div>
+                    </div>
+                  </div>
+                </div>
+              </div>
+            </div>
+          </div>
+
+          <div class="lg:col-span-2 space-y-6">
+            <div id="mk-result" class="rounded-2xl border border-slate-200 bg-white shadow-sm p-6 min-h-[200px]" aria-live="assertive"></div>
+            <div class="bg-white rounded-2xl border border-slate-200 shadow-sm">
+              <div class="px-5 py-4 border-b flex items-center justify-between">
+                <h2 class="font-bold text-slate-900">Marcajes de hoy</h2>
+                <span id="hoy-count" class="text-xs font-semibold bg-slate-100 px-2 py-1 rounded-full"></span>
+              </div>
+              <ul id="hoy-list" class="divide-y max-h-[420px] overflow-y-auto"></ul>
+            </div>
+          </div>
+        </div>
+      </section>
+
+      <!-- ===================== MÓDULO 1: DOCENTES ===================== -->
+      <section id="view-docentes" class="view hidden">
+        <div class="grid grid-cols-2 md:grid-cols-4 gap-4 mb-6" id="doc-kpis"></div>
+        <div class="bg-white rounded-2xl border border-slate-200 shadow-sm">
+          <div class="p-4 md:p-5 border-b flex flex-col md:flex-row gap-3 md:items-center">
+            <div class="relative flex-1">
+              <label for="doc-q" class="sr-only">Buscar docente</label>
+              <input id="doc-q" type="search" placeholder="Buscar por DNI, nombre o especialidad…" class="w-full border border-slate-300 rounded-lg pl-9 pr-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-blue-200 focus:border-blue-700" />
+              <svg class="w-4 h-4 absolute left-3 top-2.5 text-slate-400" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" aria-hidden="true"><circle cx="11" cy="11" r="7"/><path d="m21 21-4.3-4.3"/></svg>
+            </div>
+            <label for="doc-estado" class="sr-only">Filtrar por estado</label>
+            <select id="doc-estado" class="border border-slate-300 rounded-lg px-3 py-2 text-sm">
+              <option value="">Todos los estados</option><option>Activo</option><option>Inactivo</option>
+            </select>
+            <label for="doc-esp" class="sr-only">Filtrar por especialidad</label>
+            <select id="doc-esp" class="border border-slate-300 rounded-lg px-3 py-2 text-sm"></select>
+            <button id="doc-new" class="px-4 py-2 rounded-lg bg-blue-900 text-white text-sm font-semibold hover:bg-blue-800">+ Nuevo docente</button>
+          </div>
+          <div class="overflow-x-auto">
+            <table class="w-full text-sm">
+              <thead class="bg-slate-50 text-slate-500 text-xs uppercase tracking-wider">
+                <tr>
+                  <th class="text-left px-5 py-3">DNI</th><th class="text-left px-5 py-3">Docente</th>
+                  <th class="text-left px-5 py-3">Especialidad</th><th class="text-left px-5 py-3">Estado</th>
+                  <th class="text-left px-5 py-3">Biometría</th><th class="text-right px-5 py-3">Acciones</th>
+                </tr>
+              </thead>
+              <tbody id="doc-tbody" class="divide-y"></tbody>
+            </table>
+          </div>
+          <p id="doc-foot" class="px-5 py-3 text-xs text-slate-500 border-t"></p>
+        </div>
+      </section>
+
+      <!-- ===================== MÓDULO 3: INFORMES ===================== -->
+      <section id="view-informes" class="view hidden">
+        <div class="bg-white rounded-2xl border border-slate-200 shadow-sm p-4 md:p-5 mb-6">
+          <form id="rp-form" class="grid md:grid-cols-5 gap-3 items-end">
+            <div class="md:col-span-2">
+              <label for="rp-dni" class="block text-xs font-semibold text-slate-600 mb-1">DNI del docente (vacío = todos)</label>
+              <input id="rp-dni" list="rp-list" inputmode="numeric" maxlength="8" placeholder="Ej. 45872136" class="w-full border border-slate-300 rounded-lg px-3 py-2 text-sm" />
+              <datalist id="rp-list"></datalist>
+            </div>
+            <div>
+              <label for="rp-desde" class="block text-xs font-semibold text-slate-600 mb-1">Desde</label>
+              <input id="rp-desde" type="date" class="w-full border border-slate-300 rounded-lg px-3 py-2 text-sm" />
+            </div>
+            <div>
+              <label for="rp-hasta" class="block text-xs font-semibold text-slate-600 mb-1">Hasta</label>
+              <input id="rp-hasta" type="date" class="w-full border border-slate-300 rounded-lg px-3 py-2 text-sm" />
+            </div>
+            <button class="px-4 py-2 rounded-lg bg-blue-900 text-white text-sm font-semibold hover:bg-blue-800">Consultar</button>
+          </form>
+        </div>
+        <div id="rp-head" class="mb-4"></div>
+        <div id="rp-stats" class="grid grid-cols-2 md:grid-cols-3 xl:grid-cols-6 gap-4 mb-6"></div>
+        <div class="bg-white rounded-2xl border border-slate-200 shadow-sm">
+          <div class="px-5 py-4 border-b flex flex-wrap gap-3 items-center justify-between">
+            <h2 class="font-bold text-slate-900">Historial de asistencia</h2>
+            <div class="flex gap-2">
+              <button id="rp-pdf" class="px-4 py-2 rounded-lg bg-red-700 text-white text-sm font-semibold hover:bg-red-800">Descargar PDF</button>
+              <button id="rp-xlsx" class="px-4 py-2 rounded-lg bg-emerald-700 text-white text-sm font-semibold hover:bg-emerald-800">Descargar Excel</button>
+            </div>
+          </div>
+          <div class="overflow-x-auto max-h-[560px]">
+            <table class="w-full text-sm">
+              <thead id="rp-thead" class="bg-slate-50 text-slate-500 text-xs uppercase tracking-wider sticky top-0"></thead>
+              <tbody id="rp-tbody" class="divide-y"></tbody>
+            </table>
+          </div>
+        </div>
+      </section>
+
+      <!-- ===================== MÓDULO 4: ANALÍTICA IA ===================== -->
+      <section id="view-analitica" class="view hidden">
+        <div id="an-kpis" class="grid grid-cols-2 md:grid-cols-3 xl:grid-cols-5 gap-4 mb-6"></div>
+        <div class="grid lg:grid-cols-3 gap-6 mb-6">
+          <div class="lg:col-span-2 bg-white rounded-2xl border border-slate-200 shadow-sm p-5">
+            <h2 class="font-bold text-slate-900">Tendencia de puntualidad (últimos 30 días)</h2>
+            <p class="text-xs text-slate-500 mb-3">Porcentaje de ingresos puntuales por jornada</p>
+            <div class="h-64"><canvas id="ch-trend" aria-label="Gráfico de tendencia de puntualidad" role="img"></canvas></div>
+          </div>
+          <div class="bg-white rounded-2xl border border-slate-200 shadow-sm p-5">
+            <h2 class="font-bold text-slate-900">Tardanzas por día</h2>
+            <p class="text-xs text-slate-500 mb-3">Distribución semanal (30 días)</p>
+            <div class="h-64"><canvas id="ch-week" aria-label="Gráfico de tardanzas por día de la semana" role="img"></canvas></div>
+          </div>
+        </div>
+        <div class="grid lg:grid-cols-5 gap-6">
+          <div class="lg:col-span-2 bg-white rounded-2xl border border-slate-200 shadow-sm">
+            <div class="px-5 py-4 border-b">
+              <h2 class="font-bold text-slate-900">Alertas preventivas para Dirección</h2>
+              <p class="text-xs text-slate-500">Generadas por el motor predictivo local</p>
+            </div>
+            <ul id="an-alerts" class="divide-y max-h-[520px] overflow-y-auto"></ul>
+          </div>
+          <div class="lg:col-span-3 bg-white rounded-2xl border border-slate-200 shadow-sm">
+            <div class="px-5 py-4 border-b">
+              <h2 class="font-bold text-slate-900">Índice de riesgo por docente</h2>
+              <p class="text-xs text-slate-500">Probabilidad estimada de tardanza en la próxima jornada (suavizado exponencial)</p>
+            </div>
+            <div class="overflow-x-auto">
+              <table class="w-full text-sm">
+                <thead class="bg-slate-50 text-slate-500 text-xs uppercase tracking-wider">
+                  <tr><th class="text-left px-4 py-3">Docente</th><th class="text-right px-4 py-3">Asist.</th><th class="text-right px-4 py-3">Tard.</th><th class="text-right px-4 py-3">Tasa</th><th class="text-right px-4 py-3">Prob. mañana</th><th class="text-left px-4 py-3">Riesgo</th></tr>
+                </thead>
+                <tbody id="an-rank" class="divide-y"></tbody>
+              </table>
+            </div>
+          </div>
+        </div>
+      </section>
+
+      <!-- ===================== CONFIGURACIÓN ===================== -->
+      <section id="view-config" class="view hidden">
+        <div class="grid lg:grid-cols-2 gap-6">
+          <form id="cfg-form" class="bg-white rounded-2xl border border-slate-200 shadow-sm p-5 space-y-4">
+            <h2 class="font-bold text-slate-900">Parámetros institucionales</h2>
+            <div><label for="cfg-inst" class="block text-xs font-semibold text-slate-600 mb-1">Institución educativa</label><input id="cfg-inst" required class="w-full border border-slate-300 rounded-lg px-3 py-2 text-sm" /></div>
+            <div><label for="cfg-ugel" class="block text-xs font-semibold text-slate-600 mb-1">UGEL / DRE</label><input id="cfg-ugel" class="w-full border border-slate-300 rounded-lg px-3 py-2 text-sm" /></div>
+            <div><label for="cfg-dir" class="block text-xs font-semibold text-slate-600 mb-1">Director(a)</label><input id="cfg-dir" class="w-full border border-slate-300 rounded-lg px-3 py-2 text-sm" /></div>
+            <div class="grid grid-cols-2 gap-3">
+              <div><label for="cfg-hora" class="block text-xs font-semibold text-slate-600 mb-1">Hora límite de ingreso</label><input id="cfg-hora" type="time" step="1" required class="w-full border border-slate-300 rounded-lg px-3 py-2 text-sm" /></div>
+              <div><label for="cfg-umbral" class="block text-xs font-semibold text-slate-600 mb-1">Umbral de alerta (tardanzas / 30 días)</label><input id="cfg-umbral" type="number" min="1" max="30" required class="w-full border border-slate-300 rounded-lg px-3 py-2 text-sm" /></div>
+            </div>
+            <button class="px-4 py-2 rounded-lg bg-blue-900 text-white text-sm font-semibold hover:bg-blue-800">Guardar parámetros</button>
+          </form>
+          <div class="bg-white rounded-2xl border border-slate-200 shadow-sm p-5 space-y-4">
+            <h2 class="font-bold text-slate-900">Base de datos local</h2>
+            <p class="text-sm text-slate-600">Los datos se guardan en el navegador de este equipo (LocalStorage). Realice copias de seguridad periódicas en un USB.</p>
+            <div id="cfg-db" class="text-sm bg-slate-50 rounded-lg p-3 tabular-nums"></div>
+            <div class="flex flex-wrap gap-2">
+              <button id="db-export" class="px-4 py-2 rounded-lg bg-slate-800 text-white text-sm font-semibold hover:bg-slate-700">Exportar respaldo (.json)</button>
+              <label class="px-4 py-2 rounded-lg bg-slate-200 text-slate-800 text-sm font-semibold hover:bg-slate-300 cursor-pointer">Importar respaldo<input id="db-import" type="file" accept="application/json,.json" class="sr-only" /></label>
+            </div>
+            <div class="border-t pt-4 flex flex-wrap gap-2">
+              <button id="db-demo" class="px-4 py-2 rounded-lg border border-amber-400 text-amber-700 text-sm font-semibold hover:bg-amber-50">Restaurar datos de demostración</button>
+              <button id="db-clear" class="px-4 py-2 rounded-lg border border-red-300 text-red-700 text-sm font-semibold hover:bg-red-50">Borrar todo</button>
+            </div>
+          </div>
+        </div>
+      </section>
+    </main>
+  </div>
+</div>
+
+<!-- ===================== MÓDULO 5: BOTÓN DE AYUDA ===================== -->
+<button id="help-fab" aria-label="Abrir asistente de ayuda" class="fixed bottom-5 right-5 z-40 w-14 h-14 rounded-full bg-blue-900 text-white text-2xl font-extrabold shadow-xl hover:bg-blue-800 focus:outline-none focus:ring-4 focus:ring-blue-300">?</button>
+
+<!-- Modales -->
+<div id="modal-docente" class="modal hidden fixed inset-0 z-50 bg-slate-900/60 p-4 overflow-y-auto" role="dialog" aria-modal="true" aria-labelledby="md-title">
+  <form id="form-docente" class="bg-white rounded-2xl max-w-lg mx-auto mt-10 shadow-2xl" novalidate>
+    <div class="px-6 py-4 border-b flex justify-between items-center"><h2 id="md-title" class="font-bold text-lg">Nuevo docente</h2><button type="button" data-close class="text-slate-400 hover:text-slate-700 text-2xl leading-none" aria-label="Cerrar">&times;</button></div>
+    <div class="p-6 space-y-4">
+      <div><label for="f-dni" class="block text-xs font-semibold text-slate-600 mb-1">DNI (8 dígitos)</label><input id="f-dni" name="dni" inputmode="numeric" maxlength="8" required class="w-full border border-slate-300 rounded-lg px-3 py-2 tabular-nums" /></div>
+      <div class="grid sm:grid-cols-2 gap-3">
+        <div><label for="f-nom" class="block text-xs font-semibold text-slate-600 mb-1">Nombres</label><input id="f-nom" name="nombres" required class="w-full border border-slate-300 rounded-lg px-3 py-2" /></div>
+        <div><label for="f-ape" class="block text-xs font-semibold text-slate-600 mb-1">Apellidos</label><input id="f-ape" name="apellidos" required class="w-full border border-slate-300 rounded-lg px-3 py-2" /></div>
+      </div>
+      <div><label for="f-esp" class="block text-xs font-semibold text-slate-600 mb-1">Especialidad</label><input id="f-esp" name="especialidad" list="esp-list" required class="w-full border border-slate-300 rounded-lg px-3 py-2" /><datalist id="esp-list"></datalist></div>
+      <div><label for="f-est" class="block text-xs font-semibold text-slate-600 mb-1">Estado laboral</label><select id="f-est" name="estado" class="w-full border border-slate-300 rounded-lg px-3 py-2"><option>Activo</option><option>Inactivo</option></select></div>
+      <p id="f-err" class="hidden text-sm text-red-700 bg-red-50 border border-red-200 rounded-lg px-3 py-2" role="alert"></p>
+    </div>
+    <div class="px-6 py-4 border-t flex justify-end gap-2"><button type="button" data-close class="px-4 py-2 rounded-lg bg-slate-100 font-semibold text-sm">Cancelar</button><button class="px-4 py-2 rounded-lg bg-blue-900 text-white font-semibold text-sm">Guardar</button></div>
+  </form>
+</div>
+
+<div id="modal-qr" class="modal hidden fixed inset-0 z-50 bg-slate-900/60 p-4 overflow-y-auto" role="dialog" aria-modal="true" aria-labelledby="mq-title">
+  <div class="bg-white rounded-2xl max-w-sm mx-auto mt-16 shadow-2xl text-center">
+    <div class="px-6 py-4 border-b flex justify-between items-center"><h2 id="mq-title" class="font-bold text-lg">Carnet QR</h2><button type="button" data-close class="text-slate-400 hover:text-slate-700 text-2xl leading-none" aria-label="Cerrar">&times;</button></div>
+    <div class="p-6">
+      <div id="qr-box" class="inline-block p-3 bg-white border rounded-xl"></div>
+      <p id="qr-name" class="mt-3 font-bold"></p>
+      <p id="qr-dni" class="text-sm text-slate-500 tabular-nums"></p>
+      <button id="qr-dl" class="mt-4 px-4 py-2 rounded-lg bg-blue-900 text-white font-semibold text-sm">Descargar QR (.png)</button>
+    </div>
+  </div>
+</div>
+
+<div id="modal-face" class="modal hidden fixed inset-0 z-50 bg-slate-900/60 p-4 overflow-y-auto" role="dialog" aria-modal="true" aria-labelledby="mf-title">
+  <div class="bg-white rounded-2xl max-w-lg mx-auto mt-10 shadow-2xl">
+    <div class="px-6 py-4 border-b flex justify-between items-center"><h2 id="mf-title" class="font-bold text-lg">Registro biométrico</h2><button type="button" data-close class="text-slate-400 hover:text-slate-700 text-2xl leading-none" aria-label="Cerrar">&times;</button></div>
+    <div class="p-6 space-y-4">
+      <p id="mf-name" class="font-semibold"></p>
+      <div class="relative bg-slate-900 rounded-xl aspect-[4/3] overflow-hidden">
+        <video id="enroll-video" autoplay muted playsinline class="w-full h-full object-cover -scale-x-100"></video>
+        <div id="enroll-placeholder" class="absolute inset-0 grid place-items-center text-slate-400 text-sm text-center p-4">Iniciando cámara…</div>
+      </div>
+      <p id="mf-status" class="text-sm text-slate-600" aria-live="polite"></p>
+      <div class="flex flex-wrap gap-2">
+        <button id="mf-capture" class="px-4 py-2 rounded-lg bg-emerald-600 text-white font-semibold text-sm hover:bg-emerald-700">Capturar rostro</button>
+        <button id="mf-sim" class="px-4 py-2 rounded-lg bg-slate-800 text-white font-semibold text-sm hover:bg-slate-700">Plantilla simulada</button>
+        <button id="mf-del" class="px-4 py-2 rounded-lg border border-red-300 text-red-700 font-semibold text-sm hover:bg-red-50">Eliminar plantilla</button>
+      </div>
+    </div>
+  </div>
+</div>
+
+<div id="modal-confirm" class="modal hidden fixed inset-0 z-[60] bg-slate-900/60 p-4" role="alertdialog" aria-modal="true" aria-labelledby="mc-msg">
+  <div class="bg-white rounded-2xl max-w-sm mx-auto mt-24 shadow-2xl p-6">
+    <p id="mc-msg" class="text-slate-800"></p>
+    <div class="mt-6 flex justify-end gap-2"><button id="mc-no" class="px-4 py-2 rounded-lg bg-slate-100 font-semibold text-sm">Cancelar</button><button id="mc-yes" class="px-4 py-2 rounded-lg bg-red-700 text-white font-semibold text-sm">Confirmar</button></div>
+  </div>
+</div>
+
+<div id="modal-help" class="modal hidden fixed inset-0 z-50 bg-slate-900/60 p-0 sm:p-4" role="dialog" aria-modal="true" aria-labelledby="mh-title">
+  <div class="bg-white sm:rounded-2xl max-w-xl mx-auto sm:mt-8 shadow-2xl flex flex-col h-full sm:h-[min(680px,90vh)]">
+    <div class="px-5 py-4 bg-blue-900 text-white sm:rounded-t-2xl flex justify-between items-center">
+      <div><h2 id="mh-title" class="font-bold">Asistente SICAD-IA</h2><p class="text-xs text-blue-200">Motor de reglas local · sin internet · S/ 0</p></div>
+      <button type="button" data-close class="text-blue-200 hover:text-white text-2xl leading-none" aria-label="Cerrar">&times;</button>
+    </div>
+    <div role="tablist" class="grid grid-cols-2 border-b">
+      <button role="tab" data-htab="chat" class="h-tab py-3 text-sm font-semibold">Chat de ayuda</button>
+      <button role="tab" data-htab="faq" class="h-tab py-3 text-sm font-semibold">Preguntas frecuentes</button>
+    </div>
+    <div id="htab-chat" class="h-panel flex-1 flex flex-col min-h-0">
+      <div id="chat-log" class="flex-1 overflow-y-auto p-4 space-y-3 bg-slate-50" aria-live="polite"></div>
+      <div id="chat-chips" class="px-4 pt-3 flex flex-wrap gap-2"></div>
+      <form id="chat-form" class="p-4 flex gap-2" autocomplete="off">
+        <label for="chat-in" class="sr-only">Escriba su pregunta</label>
+        <input id="chat-in" placeholder="Escriba su pregunta…" class="flex-1 min-w-0 border border-slate-300 rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-blue-200" />
+        <button class="px-4 py-2 rounded-lg bg-blue-900 text-white text-sm font-semibold">Enviar</button>
+      </form>
+    </div>
+    <div id="htab-faq" class="h-panel hidden flex-1 overflow-y-auto p-4 space-y-2"></div>
+  </div>
+</div>
+
+<div id="toasts" class="fixed top-4 right-4 z-[70] space-y-2"></div>
+
+<script>
+'use strict';
+/* =========================================================
+   UTILIDADES
+   ========================================================= */
+const $ = s => document.querySelector(s), $$ = s => [...document.querySelectorAll(s)];
+const pad = n => String(n).padStart(2, '0');
+const ymd = d => `${d.getFullYear()}-${pad(d.getMonth() + 1)}-${pad(d.getDate())}`;
+const hms = d => `${pad(d.getHours())}:${pad(d.getMinutes())}:${pad(d.getSeconds())}`;
+const toSec = t => { if (!t) return 0; const [h, m, s = 0] = t.split(':').map(Number); return h * 3600 + m * 60 + s; };
+const secToHms = s => `${pad(Math.floor(s / 3600))}:${pad(Math.floor(s % 3600 / 60))}:${pad(s % 60)}`;
+const parseYmd = s => { const [y, m, d] = s.split('-').map(Number); return new Date(y, m - 1, d); };
+const addDays = (d, n) => { const x = new Date(d); x.setDate(x.getDate() + n); return x; };
+const fmtFecha = s => { const d = parseYmd(s); return `${pad(d.getDate())}/${pad(d.getMonth() + 1)}/${d.getFullYear()}`; };
+const DIAS = ['Domingo', 'Lunes', 'Martes', 'Miércoles', 'Jueves', 'Viernes', 'Sábado'];
+const esc = s => String(s ?? '').replace(/[&<>"']/g, c => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c]));
+const uid = () => Date.now().toString(36) + Math.random().toString(36).slice(2, 7);
+const norm = s => String(s).toLowerCase().normalize('NFD').replace(/[\u0300-\u036f]/g, '');
+const fullName = d => `${d.apellidos}, ${d.nombres}`;
+const dur = (e, s) => { if (!s) return '—'; const x = toSec(s) - toSec(e); return `${Math.floor(x / 3600)}h ${pad(Math.floor(x % 3600 / 60))}m`; };
+const ico = (p, c = 'w-5 h-5') => `<svg class="${c}" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">${p}</svg>`;
+
+function toast(msg, type = 'info') {
+  const c = { ok: 'bg-emerald-600', error: 'bg-red-600', warn: 'bg-amber-500', info: 'bg-slate-800' }[type];
+  const el = document.createElement('div');
+  el.className = `${c} text-white text-sm px-4 py-3 rounded-lg shadow-lg max-w-sm transition-opacity duration-300`;
+  el.setAttribute('role', 'status'); el.textContent = msg;
+  $('#toasts').appendChild(el);
+  setTimeout(() => { el.style.opacity = '0'; setTimeout(() => el.remove(), 300); }, 3200);
+}
+let actx;
+function beep(ok = true) {
+  try {
+    actx = actx || new (window.AudioContext || window.webkitAudioContext)();
+    const o = actx.createOscillator(), g = actx.createGain();
+    o.frequency.value = ok ? 880 : 240; o.type = ok ? 'sine' : 'square';
+    g.gain.setValueAtTime(0.12, actx.currentTime);
+    g.gain.exponentialRampToValueAtTime(0.001, actx.currentTime + 0.35);
+    o.connect(g).connect(actx.destination); o.start(); o.stop(actx.currentTime + 0.35);
+  } catch (e) { /* audio opcional */ }
+}
+function download(blob, name) {
+  const a = document.createElement('a'); a.href = URL.createObjectURL(blob); a.download = name;
+  document.body.appendChild(a); a.click(); a.remove(); setTimeout(() => URL.revokeObjectURL(a.href), 1500);
+}
+
+/* =========================================================
+   BASE DE DATOS LOCAL (LocalStorage + JSON)
+   ========================================================= */
+const DB_KEY = 'sicad_db_v1';
+function mulberry32(a) { return function () { a |= 0; a = a + 0x6D2B79F5 | 0; let t = Math.imul(a ^ a >>> 15, 1 | a); t = t + Math.imul(t ^ t >>> 7, 61 | t) ^ t; return ((t ^ t >>> 14) >>> 0) / 4294967296; }; }
+
+function seed() {
+  const config = {
+    institucion: 'I.E. N.° 20188 "José Carlos Mariátegui"',
+    ugel: 'UGEL 05 - San Juan de Lurigancho',
+    director: 'Lic. Rosa Elena Quispe Huamán',
+    horaLimite: '07:45:00', umbralAlerta: 3
+  };
+  const base = [
+    ['45872136', 'María Elena', 'Torres Ramírez', 'Comunicación', 'Activo', 'good'],
+    ['41236985', 'Carlos Alberto', 'Mendoza Quispe', 'Matemática', 'Activo', 'monday'],
+    ['47851236', 'Lucía Fernanda', 'Huamán Castillo', 'Ciencia y Tecnología', 'Activo', 'good'],
+    ['40125789', 'Jorge Luis', 'Vargas Paredes', 'Educación Física', 'Activo', 'worsening'],
+    ['46985321', 'Ana Sofía', 'Rojas Delgado', 'Inglés', 'Activo', 'good'],
+    ['43698521', 'Pedro Pablo', 'Chávez Flores', 'Ciencias Sociales', 'Activo', 'chronic'],
+    ['48523697', 'Rosa Isabel', 'Gutiérrez León', 'Arte y Cultura', 'Inactivo', 'good'],
+    ['44789632', 'Miguel Ángel', 'Sánchez Ríos', 'Educación para el Trabajo', 'Activo', 'good']
+  ];
+  const rnd = mulberry32(2026);
+  const docentes = base.map(([dni, nombres, apellidos, especialidad, estado]) => ({ id: uid(), dni, nombres, apellidos, especialidad, estado, face: null, creado: new Date().toISOString() }));
+  const marcas = [];
+  const lim = toSec(config.horaLimite), today = new Date();
+  for (let back = 42; back >= 1; back--) {
+    const d = addDays(today, -back), wd = d.getDay();
+    if (wd === 0 || wd === 6) continue;
+    base.forEach(([dni, , , , estado, prof]) => {
+      if (estado === 'Inactivo' && back < 20) return;
+      if (rnd() < 0.05) return;
+      const progress = (42 - back) / 42;
+      const pLate = { good: 0.05, monday: wd === 1 ? 0.85 : 0.08, worsening: 0.04 + 0.7 * progress * progress, chronic: 0.55 }[prof];
+      const late = rnd() < pLate;
+      const extra = prof === 'worsening' ? Math.round(progress * 20) : 0;
+      const ent = late ? lim + Math.round((1 + rnd() * 18 + extra) * 60) : lim - Math.round((2 + rnd() * 28) * 60);
+      const sal = toSec('13:30:00') + Math.round(rnd() * 25 * 60);
+      marcas.push({
+        id: uid(), dni, fecha: ymd(d), entrada: secToHms(ent), estado: late ? 'TARDANZA' : 'PUNTUAL',
+        minTarde: late ? Math.round((ent - lim) / 60) : 0, salida: rnd() < 0.03 ? null : secToHms(sal),
+        metodoEntrada: ['DNI', 'QR', 'Facial'][Math.floor(rnd() * 3)], metodoSalida: 'DNI'
+      });
+    });
+  }
+  return { version: 1, config, docentes, marcas };
+}
+function load() { try { const r = localStorage.getItem(DB_KEY); if (r) return JSON.parse(r); } catch (e) {} return seed(); }
+function save() { try { localStorage.setItem(DB_KEY, JSON.stringify(db)); } catch (e) { toast('No se pudo guardar en el almacenamiento local', 'error'); } }
+let db = load(); save();
+const getDoc = dni => db.docentes.find(d => d.dni === dni);
+
+/* =========================================================
+   NAVEGACIÓN
+   ========================================================= */
+const NAV = [
+  { id: 'marcaje', label: 'Marcaje de asistencia', short: 'Marcaje', icon: '<circle cx="12" cy="12" r="9"/><path d="M12 7v5l3 2"/>' },
+  { id: 'docentes', label: 'Gestión de docentes', short: 'Docentes', icon: '<path d="M16 21v-2a4 4 0 0 0-4-4H6a4 4 0 0 0-4 4v2"/><circle cx="9" cy="7" r="4"/><path d="M22 21v-2a4 4 0 0 0-3-3.87M16 3.13a4 4 0 0 1 0 7.75"/>' },
+  { id: 'informes', label: 'Informes e históricos', short: 'Informes', icon: '<path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"/><path d="M14 2v6h6M16 13H8M16 17H8M10 9H8"/>' },
+  { id: 'analitica', label: 'Analítica e IA predictiva', short: 'Analítica IA', icon: '<path d="M3 3v18h18"/><path d="M18 17V9M13 17V5M8 17v-3"/>' },
+  { id: 'config', label: 'Configuración', short: 'Config.', icon: '<path d="M4 21v-7M4 10V3M12 21v-9M12 8V3M20 21v-5M20 12V3M1 14h6M9 8h6M17 16h6"/>' }
+];
+$('#nav-side').innerHTML = NAV.map(n => `<button data-nav="${n.id}" data-variant="side" class="w-full flex items-center gap-3 px-3 py-2.5 rounded-lg text-sm font-medium hover:bg-white/5 hover:text-white">${ico(n.icon)}<span>${n.label}</span></button>`).join('');
+$('#nav-mobile').innerHTML = NAV.map(n => `<button data-nav="${n.id}" data-variant="mob" class="shrink-0 px-3 py-1.5 rounded-full text-xs font-semibold border border-slate-200">${n.short}</button>`).join('');
+let current = null;
+const RENDER = {};
+function go(v) {
+  if (current === 'marcaje' && v !== 'marcaje') { stopQR(); stopCam('face'); }
+  current = v;
+  $$('.view').forEach(s => s.classList.toggle('hidden', s.id !== 'view-' + v));
+  $$('[data-nav]').forEach(b => {
+    const a = b.dataset.nav === v;
+    b.setAttribute('aria-current', a ? 'page' : 'false');
+    if (b.dataset.variant === 'side') { b.classList.toggle('bg-white/10', a); b.classList.toggle('text-white', a); }
+    else { b.classList.toggle('bg-blue-900', a); b.classList.toggle('text-white', a); b.classList.toggle('border-blue-900', a); }
+  });
+  $('#page-title').textContent = NAV.find(n => n.id === v).label;
+  RENDER[v]?.();
+  window.scrollTo(0, 0);
+}
+document.addEventListener('click', e => { const b = e.target.closest('[data-nav]'); if (b) go(b.dataset.nav); });
+
+/* =========================================================
+   MODALES
+   ========================================================= */
+let lastFocus = null;
+function openModal(id) { lastFocus = document.activeElement; $('#' + id).classList.remove('hidden'); setTimeout(() => $('#' + id).querySelector('input,select,button:not([data-close])')?.focus(), 30); }
+function closeModal(id) { $('#' + id).classList.add('hidden'); if (id === 'modal-face') stopCam('enroll'); lastFocus?.focus?.(); }
+$$('.modal').forEach(m => {
+  m.addEventListener('click', e => { if (e.target === m || e.target.closest('[data-close]')) closeModal(m.id); });
+});
+document.addEventListener('keydown', e => { if (e.key === 'Escape') { const m = $$('.modal').reverse().find(x => !x.classList.contains('hidden')); if (m) closeModal(m.id); } });
+function askConfirm(msg, label = 'Confirmar') {
+  return new Promise(res => {
+    $('#mc-msg').textContent = msg; $('#mc-yes').textContent = label; openModal('modal-confirm');
+    const done = v => { closeModal('modal-confirm'); $('#mc-yes').onclick = $('#mc-no').onclick = null; res(v); };
+    $('#mc-yes').onclick = () => done(true); $('#mc-no').onclick = () => done(false);
+  });
+}
+
+/* =========================================================
+   RELOJ
+   ========================================================= */
+function tick() {
+  const n = new Date(), t = hms(n);
+  const fecha = n.toLocaleDateString('es-PE', { weekday: 'long', day: 'numeric', month: 'long', year: 'numeric' });
+  $('#hdr-clock').textContent = t; $('#hdr-date').textContent = fecha;
+  $('#mk-clock').textContent = t; $('#mk-date').textContent = fecha;
+  $('#mk-limit').textContent = db.config.horaLimite;
+  const ok = toSec(t) <= toSec(db.config.horaLimite);
+  const w = $('#mk-window');
+  w.textContent = ok ? 'Dentro del horario puntual' : 'Fuera de hora · se registrará TARDANZA';
+  w.className = `inline-block mt-1 text-xs font-semibold px-2 py-1 rounded-full ${ok ? 'bg-emerald-400/20 text-emerald-200' : 'bg-red-400/20 text-red-200'}`;
+}
+function renderHeader() { $('#hdr-inst').textContent = `${db.config.institucion} · ${db.config.ugel}`; }
+
+/* =========================================================
+   MÓDULO 2: MARCAJE (doble marcaje + puntualidad)
+   ========================================================= */
+let lastScan = { dni: '', t: 0 };
+function registrar(dni, metodo) {
+  dni = String(dni).trim();
+  if (!/^\d{8}$/.test(dni)) return showResult('error', 'DNI inválido', 'El DNI debe tener exactamente 8 dígitos numéricos.');
+  const d = getDoc(dni);
+  if (!d) return showResult('error', 'DNI no registrado', `No existe un docente con DNI ${dni}. Regístrelo en Gestión de docentes.`);
+  if (d.estado !== 'Activo') return showResult('error', 'Marcaje bloqueado', `${fullName(d)} figura como INACTIVO. Contacte a Dirección.`, d);
+  const now = new Date(), f = ymd(now), h = hms(now);
+  let m = db.marcas.find(x => x.dni === dni && x.fecha === f);
+  if (!m) {
+    const lim = toSec(db.config.horaLimite), s = toSec(h);
+    const estado = s <= lim ? 'PUNTUAL' : 'TARDANZA';
+    m = { id: uid(), dni, fecha: f, entrada: h, estado, minTarde: estado === 'TARDANZA' ? Math.round((s - lim) / 60) : 0, salida: null, metodoEntrada: metodo, metodoSalida: null };
+    db.marcas.push(m); save();
+    showResult(estado === 'PUNTUAL' ? 'ok' : 'late', 'ENTRADA registrada', estado === 'PUNTUAL' ? 'Ingreso puntual. ¡Buen día!' : `Ingreso con ${m.minTarde} min de retraso respecto a ${db.config.horaLimite}.`, d, h, estado, metodo);
+  } else if (!m.salida) {
+    if (toSec(h) - toSec(m.entrada) < 60) return showResult('warn', 'Marcaje duplicado', `La entrada se registró a las ${m.entrada}. Espere al menos 1 minuto para marcar la salida.`, d);
+    m.salida = h; m.metodoSalida = metodo; save();
+    showResult('out', 'SALIDA registrada', `Jornada: ${m.entrada} → ${h} (${dur(m.entrada, h)}).`, d, h, null, metodo);
+  } else {
+    return showResult('warn', 'Jornada ya completada', `Entrada ${m.entrada} y salida ${m.salida} ya fueron registradas hoy.`, d);
+  }
+  renderHoy();
+}
+function showResult(kind, title, sub, d, hora, estado, metodo) {
+  const S = {
+    ok: ['bg-emerald-50 border-emerald-300', 'bg-emerald-600', 'text-emerald-800'],
+    late: ['bg-red-50 border-red-300', 'bg-red-600', 'text-red-800'],
+    out: ['bg-blue-50 border-blue-300', 'bg-blue-700', 'text-blue-900'],
+    warn: ['bg-amber-50 border-amber-300', 'bg-amber-500', 'text-amber-900'],
+    error: ['bg-red-50 border-red-300', 'bg-slate-800', 'text-red-800']
+  }[kind];
+  beep(kind === 'ok' || kind === 'out');
+  $('#mk-result').className = `rounded-2xl border-2 ${S[0]} shadow-sm p-6 min-h-[200px]`;
+  $('#mk-result').innerHTML = `
+    <div class="flex items-start justify-between gap-3">
+      <p class="text-xs font-bold uppercase tracking-wider ${S[2]}">${esc(title)}</p>
+      ${hora ? `<p class="text-2xl font-extrabold tabular-nums ${S[2]}">${hora}</p>` : ''}
+    </div>
+    ${d ? `<p class="mt-3 text-xl font-bold text-slate-900">${esc(d.nombres)} ${esc(d.apellidos)}</p><p class="text-sm text-slate-600">DNI ${d.dni} · ${esc(d.especialidad)}</p>` : ''}
+    ${estado ? `<span class="inline-block mt-4 text-white ${S[1]} text-2xl font-extrabold tracking-wide px-5 py-2 rounded-xl">${estado}</span>` : ''}
+    <p class="mt-4 text-sm ${S[2]}">${esc(sub)}</p>
+    ${metodo ? `<p class="mt-2 text-xs text-slate-500">Método: ${esc(metodo)}</p>` : ''}`;
+  if (kind === 'error' || kind === 'warn') toast(title, kind === 'error' ? 'error' : 'warn');
+}
+function idleResult() {
+  $('#mk-result').className = 'rounded-2xl border border-slate-200 bg-white shadow-sm p-6 min-h-[200px] grid place-items-center text-center';
+  $('#mk-result').innerHTML = `<div><p class="font-semibold text-slate-700">Esperando marcaje…</p><p class="text-sm text-slate-500 mt-1">El resultado aparecerá aquí con su clasificación de puntualidad.</p></div>`;
+}
+function renderHoy() {
+  const f = ymd(new Date());
+  const list = db.marcas.filter(m => m.fecha === f).sort((a, b) => (b.salida || b.entrada).localeCompare(a.salida || a.entrada));
+  $('#hoy-count').textContent = `${list.length} docente(s)`;
+  $('#hoy-list').innerHTML = list.length ? list.map(m => {
+    const d = getDoc(m.dni);
+    return `<li class="px-5 py-3 flex items-center justify-between gap-3">
+      <div class="min-w-0"><p class="font-semibold text-sm truncate">${d ? esc(fullName(d)) : m.dni}</p>
+      <p class="text-xs text-slate-500 tabular-nums">Entrada ${m.entrada} · Salida ${m.salida || '—'}</p></div>
+      <span class="shrink-0 text-xs font-bold px-2 py-1 rounded-full ${m.estado === 'PUNTUAL' ? 'bg-emerald-100 text-emerald-800' : 'bg-red-100 text-red-800'}">${m.estado}</span></li>`;
+  }).join('') : '<li class="px-5 py-8 text-center text-sm text-slate-500">Aún no hay marcajes hoy.</li>';
+}
+$('#in-dni').addEventListener('input', e => { e.target.value = e.target.value.replace(/\D/g, '').slice(0, 8); });
+$('#form-dni').addEventListener('submit', e => { e.preventDefault(); const v = $('#in-dni').value; registrar(v, 'DNI'); $('#in-dni').value = ''; $('#in-dni').focus(); });
+
+function setTab(t) {
+  $$('.mk-tab').forEach(b => { const a = b.dataset.tab === t; b.setAttribute('aria-selected', a); b.classList.toggle('bg-white', a); b.classList.toggle('shadow-sm', a); b.classList.toggle('text-blue-900', a); b.classList.toggle('text-slate-500', !a); });
+  $$('.mk-panel').forEach(p => p.classList.toggle('hidden', p.id !== 'tab-' + t));
+  if (t !== 'qr') stopQR();
+  if (t !== 'face') stopCam('face');
+  if (t === 'dni') $('#in-dni').focus();
+  if (t === 'face') renderFaceInfo();
+}
+$$('.mk-tab').forEach(b => b.addEventListener('click', () => setTab(b.dataset.tab)));
+
+/* ---------- QR ---------- */
+let qrScanner = null;
+function onQR(text) {
+  const m = String(text).match(/\d{8}/);
+  if (!m) { $('#qr-status').textContent = 'QR no válido para SICAD.'; return; }
+  const now = Date.now();
+  if (m[0] === lastScan.dni && now - lastScan.t < 5000) return;
+  lastScan = { dni: m[0], t: now };
+  registrar(m[0], 'QR');
+}
+async function startQR() {
+  if (!window.Html5Qrcode) return toast('Librería QR no disponible', 'error');
+  try {
+    qrScanner = qrScanner || new Html5Qrcode('qr-reader');
+    $('#qr-placeholder').classList.add('hidden');
+    await qrScanner.start({ facingMode: 'environment' }, { fps: 10, qrbox: 200 }, onQR, () => {});
+    $('#qr-status').textContent = 'Escáner activo. Acerque el código QR.';
+  } catch (e) {
+    $('#qr-placeholder').classList.remove('hidden');
+    $('#qr-status').textContent = 'No se pudo acceder a la cámara. Use “leer QR desde imagen”.';
+  }
+}
+async function stopQR() {
+  try { if (qrScanner?.isScanning) { await qrScanner.stop(); qrScanner.clear(); } } catch (e) {}
+  $('#qr-placeholder').classList.remove('hidden');
+}
+$('#qr-start').onclick = startQR; $('#qr-stop').onclick = () => { stopQR(); $('#qr-status').textContent = 'Escáner detenido.'; };
+$('#qr-file').addEventListener('change', async e => {
+  const f = e.target.files[0]; if (!f) return;
+  try { await stopQR(); qrScanner = qrScanner || new Html5Qrcode('qr-reader'); const txt = await qrScanner.scanFile(f, false); lastScan = { dni: '', t: 0 }; onQR(txt); }
+  catch (err) { $('#qr-status').textContent = 'No se detectó un QR en la imagen.'; }
+  e.target.value = '';
+});
+
+/* ---------- Cámara + face-api.js (RF-07-IA) ---------- */
+const streams = {};
+async function startCam(key, video, placeholder) {
+  if (streams[key]) return true;
+  try {
+    const s = await navigator.mediaDevices.getUserMedia({ video: { width: 640, height: 480, facingMode: 'user' }, audio: false });
+    streams[key] = s; video.srcObject = s; await video.play().catch(() => {});
+    placeholder.classList.add('hidden'); return true;
+  } catch (e) {
+    placeholder.classList.remove('hidden');
+    placeholder.textContent = 'Cámara no disponible o permiso denegado. Use el modo simulación.';
+    return false;
+  }
+}
+function stopCam(key) {
+  streams[key]?.getTracks().forEach(t => t.stop()); delete streams[key];
+  if (key === 'face') { $('#face-video').srcObject = null; $('#face-placeholder').classList.remove('hidden'); $('#face-placeholder').textContent = 'Cámara apagada'; clearCanvas(); }
+  if (key === 'enroll') $('#enroll-video').srcObject = null;
+}
+function clearCanvas() { const c = $('#face-canvas'); c.getContext('2d').clearRect(0, 0, c.width, c.height); }
+
+let facePromise = null;
+function loadFaceApi(statusEl) {
+  if (facePromise) return facePromise;
+  statusEl && (statusEl.textContent = 'Cargando modelos de IA facial (solo la primera vez)…');
+  facePromise = new Promise((res, rej) => {
+    if (window.faceapi) return res();
+    const s = document.createElement('script');
+    s.src = 'https://cdn.jsdelivr.net/npm/@vladmandic/face-api@1/dist/face-api.js';
+    s.onload = res; s.onerror = () => rej(new Error('No se pudo cargar face-api.js'));
+    document.head.appendChild(s);
+  }).then(async () => {
+    const URL_M = 'https://cdn.jsdelivr.net/npm/@vladmandic/face-api@1/model/';
+    await Promise.all([
+      faceapi.nets.tinyFaceDetector.loadFromUri(URL_M),
+      faceapi.nets.faceLandmark68Net.loadFromUri(URL_M),
+      faceapi.nets.faceRecognitionNet.loadFromUri(URL_M)
+    ]);
+  });
+  facePromise.catch(() => { facePromise = null; });
+  return facePromise;
+}
+async function detectFace(video) {
+  return faceapi.detectSingleFace(video, new faceapi.TinyFaceDetectorOptions({ inputSize: 320, scoreThreshold: 0.5 })).withFaceLandmarks().withFaceDescriptor();
+}
+function renderFaceInfo() {
+  const n = db.docentes.filter(d => Array.isArray(d.face?.descriptor)).length;
+  const s = db.docentes.filter(d => d.face?.sim).length;
+  $('#face-status').textContent = `Rostros registrados: ${n} reales · ${s} simulados`;
+  $('#face-sim').innerHTML = db.docentes.filter(d => d.estado === 'Activo').sort((a, b) => a.apellidos.localeCompare(b.apellidos)).map(d => `<option value="${d.dni}">${esc(fullName(d))}</option>`).join('');
+}
+$('#face-start').onclick = async () => { if (await startCam('face', $('#face-video'), $('#face-placeholder'))) { $('#face-status').textContent = 'Cámara activa. Mire al frente y pulse “Reconocer y marcar”.'; loadFaceApi($('#face-status')).catch(() => {}); } };
+$('#face-stop').onclick = () => stopCam('face');
+$('#face-recognize').onclick = async () => {
+  const st = $('#face-status');
+  if (!streams.face) return toast('Inicie la cámara primero (o use el modo simulación)', 'warn');
+  try {
+    await loadFaceApi(st);
+    $('#face-scan').classList.remove('hidden'); st.textContent = 'Analizando rostro…';
+    const v = $('#face-video'), det = await detectFace(v);
+    $('#face-scan').classList.add('hidden');
+    if (!det) { st.textContent = 'No se detectó un rostro. Mejore la iluminación y acérquese.'; return beep(false); }
+    const c = $('#face-canvas'); const dims = { width: v.videoWidth, height: v.videoHeight };
+    faceapi.matchDimensions(c, dims); clearCanvas(); faceapi.draw.drawDetections(c, faceapi.resizeResults(det, dims));
+    const labeled = db.docentes.filter(d => Array.isArray(d.face?.descriptor)).map(d => new faceapi.LabeledFaceDescriptors(d.dni, [new Float32Array(d.face.descriptor)]));
+    if (!labeled.length) { st.textContent = 'No hay rostros reales registrados. Regístrelos en Docentes → Rostro.'; return; }
+    const best = new faceapi.FaceMatcher(labeled, 0.5).findBestMatch(det.descriptor);
+    if (best.label === 'unknown') { st.textContent = 'Rostro no reconocido.'; return showResult('error', 'Rostro no reconocido', 'No coincide con ninguna plantilla registrada.'); }
+    const conf = Math.round((1 - best.distance) * 100);
+    st.textContent = `Identificado con ${conf}% de similitud.`;
+    registrar(best.label, `Facial (${conf}%)`);
+  } catch (e) {
+    $('#face-scan').classList.add('hidden');
+    st.textContent = 'No se pudo cargar la IA facial (requiere conexión la primera vez). Use el modo simulación.';
+  }
+};
+$('#face-sim-btn').onclick = () => {
+  const dni = $('#face-sim').value; if (!dni) return;
+  $('#face-scan').classList.remove('hidden'); $('#face-placeholder').classList.add('hidden');
+  $('#face-status').textContent = 'Simulando captura biométrica…';
+  setTimeout(() => {
+    $('#face-scan').classList.add('hidden'); if (!streams.face) $('#face-placeholder').classList.remove('hidden');
+    const conf = 88 + Math.floor(Math.random() * 11);
+    $('#face-status').textContent = `Coincidencia simulada: ${conf}%`;
+    registrar(dni, `Facial-Sim (${conf}%)`);
+  }, 1200);
+};
+
+/* =========================================================
+   MÓDULO 1: GESTIÓN DE DOCENTES (CRUD)
+   ========================================================= */
+function renderDocentes() {
+  const esp = [...new Set(db.docentes.map(d => d.especialidad))].sort();
+  const cur = $('#doc-esp').value;
+  $('#doc-esp').innerHTML = '<option value="">Todas las especialidades</option>' + esp.map(e => `<option ${e === cur ? 'selected' : ''}>${esc(e)}</option>`).join('');
+  $('#esp-list').innerHTML = esp.map(e => `<option value="${esc(e)}">`).join('');
+  const q = norm($('#doc-q').value.trim()), fe = $('#doc-estado').value, fs = $('#doc-esp').value;
+  const list = db.docentes.filter(d => (!fe || d.estado === fe) && (!fs || d.especialidad === fs) && (!q || norm(`${d.dni} ${d.nombres} ${d.apellidos} ${d.especialidad}`).includes(q))).sort((a, b) => a.apellidos.localeCompare(b.apellidos));
+  const act = db.docentes.filter(d => d.estado === 'Activo').length;
+  const bio = db.docentes.filter(d => d.face).length;
+  $('#doc-kpis').innerHTML = [['Total docentes', db.docentes.length, 'text-slate-900'], ['Activos', act, 'text-emerald-700'], ['Inactivos', db.docentes.length - act, 'text-red-700'], ['Con biometría', bio, 'text-blue-900']]
+    .map(([l, v, c]) => `<div class="bg-white rounded-2xl border border-slate-200 p-4 shadow-sm"><p class="text-xs text-slate-500 font-semibold">${l}</p><p class="text-3xl font-extrabold ${c}">${v}</p></div>`).join('');
+  const btn = 'px-2.5 py-1.5 rounded-md text-xs font-semibold';
+  $('#doc-tbody').innerHTML = list.length ? list.map(d => `
+    <tr class="hover:bg-slate-50">
+      <td class="px-5 py-3 tabular-nums font-semibold">${d.dni}</td>
+      <td class="px-5 py-3"><p class="font-semibold text-slate-900">${esc(d.apellidos)}</p><p class="text-xs text-slate-500">${esc(d.nombres)}</p></td>
+      <td class="px-5 py-3 text-slate-600">${esc(d.especialidad)}</td>
+      <td class="px-5 py-3"><button data-act="toggle" data-dni="${d.dni}" aria-label="Cambiar estado de ${esc(fullName(d))}" class="text-xs font-bold px-2.5 py-1 rounded-full ${d.estado === 'Activo' ? 'bg-emerald-100 text-emerald-800 hover:bg-emerald-200' : 'bg-red-100 text-red-800 hover:bg-red-200'}">${d.estado}</button></td>
+      <td class="px-5 py-3 text-xs">${d.face ? (d.face.sim ? '<span class="text-amber-700 font-semibold">Simulada</span>' : '<span class="text-emerald-700 font-semibold">Registrada</span>') : '<span class="text-slate-400">Sin registro</span>'}</td>
+      <td class="px-5 py-3"><div class="flex justify-end gap-1.5 flex-wrap">
+        <button data-act="qr" data-dni="${d.dni}" class="${btn} bg-slate-100 hover:bg-slate-200">QR</button>
+        <button data-act="face" data-dni="${d.dni}" class="${btn} bg-slate-100 hover:bg-slate-200">Rostro</button>
+        <button data-act="hist" data-dni="${d.dni}" class="${btn} bg-slate-100 hover:bg-slate-200">Historial</button>
+        <button data-act="edit" data-dni="${d.dni}" class="${btn} bg-blue-100 text-blue-900 hover:bg-blue-200">Editar</button>
+        <button data-act="del" data-dni="${d.dni}" class="${btn} bg-red-50 text-red-700 hover:bg-red-100">Eliminar</button>
+      </div></td>
+    </tr>`).join('') : '<tr><td colspan="6" class="px-5 py-10 text-center text-slate-500">No se encontraron docentes con esos criterios.</td></tr>';
+  $('#doc-foot').textContent = `Mostrando ${list.length} de ${db.docentes.length} docentes`;
+}
+RENDER.docentes = renderDocentes;
+['#doc-q', '#doc-estado', '#doc-esp'].forEach(s => $(s).addEventListener('input', renderDocentes));
+
+function openDocente(dni) {
+  const f = $('#form-docente'), d = dni ? getDoc(dni) : null;
+  f.reset(); f.dataset.orig = d ? d.dni : '';
+  $('#md-title').textContent = d ? 'Editar docente' : 'Nuevo docente';
+  if (d) { f.dni.value = d.dni; f.nombres.value = d.nombres; f.apellidos.value = d.apellidos; f.especialidad.value = d.especialidad; f.estado.value = d.estado; }
+  $('#f-err').classList.add('hidden'); openModal('modal-docente');
+}
+$('#doc-new').onclick = () => openDocente(null);
+$('#f-dni').addEventListener('input', e => { e.target.value = e.target.value.replace(/\D/g, '').slice(0, 8); });
+$('#form-docente').addEventListener('submit', e => {
+  e.preventDefault();
+  const f = e.target, orig = f.dataset.orig;
+  const v = { dni: f.dni.value.trim(), nombres: f.nombres.value.trim().replace(/\s+/g, ' '), apellidos: f.apellidos.value.trim().replace(/\s+/g, ' '), especialidad: f.especialidad.value.trim(), estado: f.estado.value };
+  const NAME = /^[A-Za-zÁÉÍÓÚÜÑáéíóúüñ' .-]{2,60}$/;
+  let err = '';
+  if (!/^\d{8}$/.test(v.dni)) err = 'El DNI debe tener exactamente 8 dígitos.';
+  else if (v.dni !== orig && getDoc(v.dni)) err = `El DNI ${v.dni} ya está registrado.`;
+  else if (!NAME.test(v.nombres)) err = 'Ingrese nombres válidos (solo letras).';
+  else if (!NAME.test(v.apellidos)) err = 'Ingrese apellidos válidos (solo letras).';
+  else if (v.especialidad.length < 3) err = 'Ingrese la especialidad.';
+  if (err) { $('#f-err').textContent = err; $('#f-err').classList.remove('hidden'); return; }
+  if (orig) {
+    const d = getDoc(orig);
+    if (v.dni !== orig) db.marcas.forEach(m => { if (m.dni === orig) m.dni = v.dni; });
+    Object.assign(d, v); toast('Docente actualizado', 'ok');
+  } else {
+    db.docentes.push({ id: uid(), ...v, face: null, creado: new Date().toISOString() }); toast('Docente registrado', 'ok');
+  }
+  save(); closeModal('modal-docente'); renderDocentes();
+});
+
+let qrCurrent = null, faceCurrent = null;
+$('#doc-tbody').addEventListener('click', async e => {
+  const b = e.target.closest('[data-act]'); if (!b) return;
+  const d = getDoc(b.dataset.dni); if (!d) return;
+  switch (b.dataset.act) {
+    case 'edit': openDocente(d.dni); break;
+    case 'toggle':
+      d.estado = d.estado === 'Activo' ? 'Inactivo' : 'Activo'; save(); renderDocentes();
+      toast(`${fullName(d)} ahora está ${d.estado}${d.estado === 'Inactivo' ? ' (marcaje bloqueado)' : ''}`, d.estado === 'Activo' ? 'ok' : 'warn'); break;
+    case 'del':
+      if (await askConfirm(`¿Eliminar a ${fullName(d)} y todos sus registros de asistencia? Esta acción no se puede deshacer.`, 'Eliminar')) {
+        db.docentes = db.docentes.filter(x => x.dni !== d.dni); db.marcas = db.marcas.filter(m => m.dni !== d.dni); save(); renderDocentes(); toast('Docente eliminado', 'info');
+      } break;
+    case 'qr':
+      qrCurrent = d; $('#qr-box').innerHTML = '';
+      if (window.QRCode) new QRCode($('#qr-box'), { text: 'SICAD:' + d.dni, width: 200, height: 200, correctLevel: QRCode.CorrectLevel.M });
+      $('#qr-name').textContent = fullName(d); $('#qr-dni').textContent = 'DNI ' + d.dni; openModal('modal-qr'); break;
+    case 'face': openFace(d); break;
+    case 'hist': go('informes'); $('#rp-dni').value = d.dni; renderReport(); break;
+  }
+});
+$('#qr-dl').onclick = () => {
+  const c = $('#qr-box canvas'), img = $('#qr-box img');
+  const url = c ? c.toDataURL('image/png') : img?.src; if (!url) return;
+  const a = document.createElement('a'); a.href = url; a.download = `QR_${qrCurrent.dni}.png`; a.click();
+};
+
+async function openFace(d) {
+  faceCurrent = d; $('#mf-name').textContent = `${fullName(d)} · DNI ${d.dni}`;
+  $('#mf-status').textContent = d.face ? (d.face.sim ? 'Tiene una plantilla simulada.' : `Plantilla registrada el ${new Date(d.face.fecha).toLocaleDateString('es-PE')}.`) : 'Sin plantilla biométrica.';
+  $('#enroll-placeholder').textContent = 'Iniciando cámara…'; $('#enroll-placeholder').classList.remove('hidden');
+  openModal('modal-face');
+  if (await startCam('enroll', $('#enroll-video'), $('#enroll-placeholder'))) loadFaceApi($('#mf-status')).then(() => { $('#mf-status').textContent = 'Modelos listos. Mire a la cámara y pulse “Capturar rostro”.'; }).catch(() => { $('#mf-status').textContent = 'No se pudo cargar la IA facial. Puede usar la plantilla simulada.'; });
+}
+$('#mf-capture').onclick = async () => {
+  if (!streams.enroll) return toast('Cámara no disponible: use “Plantilla simulada”', 'warn');
+  try {
+    await loadFaceApi($('#mf-status')); $('#mf-status').textContent = 'Capturando…';
+    const det = await detectFace($('#enroll-video'));
+    if (!det) { $('#mf-status').textContent = 'No se detectó un rostro. Intente nuevamente.'; return; }
+    faceCurrent.face = { descriptor: Array.from(det.descriptor), fecha: new Date().toISOString() };
+    save(); renderDocentes(); toast('Rostro registrado correctamente', 'ok'); closeModal('modal-face');
+  } catch (e) { $('#mf-status').textContent = 'Error al procesar. Use la plantilla simulada.'; }
+};
+$('#mf-sim').onclick = () => { faceCurrent.face = { sim: true, fecha: new Date().toISOString() }; save(); renderDocentes(); toast('Plantilla simulada registrada', 'ok'); closeModal('modal-face'); };
+$('#mf-del').onclick = () => { faceCurrent.face = null; save(); renderDocentes(); toast('Plantilla eliminada', 'info'); closeModal('modal-face'); };
+
+/* =========================================================
+   MÓDULO 3: INFORMES E HISTÓRICOS
+   ========================================================= */
+function workingDays(desde, hasta) {
+  let n = 0; const end = parseYmd(hasta), today = ymd(new Date());
+  for (let d = parseYmd(desde); d <= end; d = addDays(d, 1)) { const w = d.getDay(); if (w !== 0 && w !== 6 && ymd(d) <= today) n++; }
+  return n;
+}
+function getReportData() {
+  const dni = $('#rp-dni').value.trim(), desde = $('#rp-desde').value, hasta = $('#rp-hasta').value;
+  if (!desde || !hasta) return { error: 'Seleccione el rango de fechas.' };
+  if (desde > hasta) return { error: 'La fecha inicial no puede ser mayor que la final.' };
+  if (dni && !/^\d{8}$/.test(dni)) return { error: 'El DNI debe tener 8 dígitos.' };
+  const doc = dni ? getDoc(dni) : null;
+  if (dni && !doc) return { error: `No existe un docente con DNI ${dni}.` };
+  const rows = db.marcas.filter(m => m.fecha >= desde && m.fecha <= hasta && (!dni || m.dni === dni))
+    .sort((a, b) => a.fecha.localeCompare(b.fecha) || a.entrada.localeCompare(b.entrada));
+  const punt = rows.filter(r => r.estado === 'PUNTUAL').length, tard = rows.length - punt;
+  const minTot = rows.reduce((s, r) => s + (r.minTarde || 0), 0);
+  const sinSal = rows.filter(r => !r.salida).length;
+  const faltas = doc ? Math.max(0, workingDays(desde, hasta) - rows.length) : null;
+  return { dni, doc, desde, hasta, rows, stats: { total: rows.length, punt, tard, pct: rows.length ? Math.round(punt / rows.length * 100) : 0, minTot, sinSal, faltas } };
+}
+function renderReport() {
+  const R = getReportData();
+  if (R.error) { toast(R.error, 'error'); return; }
+  const s = R.stats;
+  $('#rp-head').innerHTML = R.doc
+    ? `<div class="bg-white rounded-2xl border border-slate-200 shadow-sm p-4 flex flex-wrap justify-between gap-2"><div><p class="text-xs text-slate-500 font-semibold">Historial individual</p><p class="font-bold text-lg">${esc(fullName(R.doc))}</p><p class="text-sm text-slate-500">DNI ${R.doc.dni} · ${esc(R.doc.especialidad)} · ${R.doc.estado}</p></div><p class="text-sm text-slate-500 self-end">Periodo: ${fmtFecha(R.desde)} – ${fmtFecha(R.hasta)}</p></div>`
+    : `<p class="text-sm text-slate-500">Reporte general de todos los docentes · ${fmtFecha(R.desde)} – ${fmtFecha(R.hasta)}</p>`;
+  const cards = [['Asistencias', s.total, 'text-slate-900'], ['Puntuales', s.punt, 'text-emerald-700'], ['Tardanzas', s.tard, 'text-red-700'], ['% Puntualidad', s.pct + '%', 'text-blue-900'], ['Min. de tardanza', s.minTot, 'text-amber-700'], [R.doc ? 'Inasistencias' : 'Sin salida', R.doc ? s.faltas : s.sinSal, 'text-slate-700']];
+  $('#rp-stats').innerHTML = cards.map(([l, v, c]) => `<div class="bg-white rounded-2xl border border-slate-200 p-4 shadow-sm"><p class="text-xs text-slate-500 font-semibold">${l}</p><p class="text-2xl font-extrabold ${c}">${v}</p></div>`).join('');
+  const th = c => `<th class="text-left px-4 py-3 bg-slate-50">${c}</th>`;
+  $('#rp-thead').innerHTML = `<tr>${th('Fecha')}${th('Día')}${R.doc ? '' : th('Docente')}${th('Entrada')}${th('Estado')}${th('Min. tarde')}${th('Salida')}${th('Permanencia')}${th('Método')}</tr>`;
+  $('#rp-tbody').innerHTML = R.rows.length ? R.rows.map(r => {
+    const d = getDoc(r.dni);
+    return `<tr class="hover:bg-slate-50"><td class="px-4 py-2.5 tabular-nums">${fmtFecha(r.fecha)}</td><td class="px-4 py-2.5">${DIAS[parseYmd(r.fecha).getDay()]}</td>
+      ${R.doc ? '' : `<td class="px-4 py-2.5">${d ? esc(fullName(d)) : r.dni}</td>`}
+      <td class="px-4 py-2.5 tabular-nums">${r.entrada}</td>
+      <td class="px-4 py-2.5"><span class="text-xs font-bold px-2 py-0.5 rounded-full ${r.estado === 'PUNTUAL' ? 'bg-emerald-100 text-emerald-800' : 'bg-red-100 text-red-800'}">${r.estado}</span></td>
+      <td class="px-4 py-2.5 tabular-nums">${r.minTarde || 0}</td><td class="px-4 py-2.5 tabular-nums">${r.salida || '<span class="text-amber-600">Sin marcar</span>'}</td>
+      <td class="px-4 py-2.5 tabular-nums">${dur(r.entrada, r.salida)}</td><td class="px-4 py-2.5 text-xs text-slate-500">${esc(r.metodoEntrada || '')}</td></tr>`;
+  }).join('') : `<tr><td colspan="9" class="px-4 py-10 text-center text-slate-500">Sin registros en el periodo seleccionado.</td></tr>`;
+}
+RENDER.informes = () => {
+  $('#rp-list').innerHTML = db.docentes.map(d => `<option value="${d.dni}">${esc(fullName(d))}</option>`).join('');
+  if (!$('#rp-desde').value) $('#rp-desde').value = ymd(addDays(new Date(), -30));
+  if (!$('#rp-hasta').value) $('#rp-hasta').value = ymd(new Date());
+  renderReport();
+};
+$('#rp-form').addEventListener('submit', e => { e.preventDefault(); renderReport(); });
+$('#rp-dni').addEventListener('input', e => { e.target.value = e.target.value.replace(/\D/g, '').slice(0, 8); });
+
+function exportPDF() {
+  const R = getReportData(); if (R.error) return toast(R.error, 'error');
+  if (!window.jspdf) return toast('jsPDF no está disponible', 'error');
+  const { jsPDF } = window.jspdf, doc = new jsPDF({ unit: 'mm', format: 'a4' }), W = doc.internal.pageSize.getWidth(), cfg = db.config;
+  doc.setFillColor(30, 58, 138); doc.rect(0, 0, W, 30, 'F');
+  doc.setTextColor(255); doc.setFont('helvetica', 'bold'); doc.setFontSize(13); doc.text(cfg.institucion, 14, 12);
+  doc.setFont('helvetica', 'normal'); doc.setFontSize(9); doc.text(cfg.ugel, 14, 18); doc.text('Sistema Local de Control de Asistencia Docente (SICAD)', 14, 24);
+  doc.text(`Emitido: ${new Date().toLocaleString('es-PE')}`, W - 14, 12, { align: 'right' });
+  doc.setTextColor(15, 23, 42); doc.setFont('helvetica', 'bold'); doc.setFontSize(14);
+  doc.text(R.doc ? 'REPORTE INDIVIDUAL DE ASISTENCIA' : 'REPORTE GENERAL DE ASISTENCIA', W / 2, 42, { align: 'center' });
+  doc.setFont('helvetica', 'normal'); doc.setFontSize(10);
+  const info = R.doc
+    ? [['Docente:', fullName(R.doc)], ['DNI:', R.doc.dni], ['Especialidad:', R.doc.especialidad], ['Periodo:', `${fmtFecha(R.desde)} al ${fmtFecha(R.hasta)}`], ['Hora límite:', cfg.horaLimite]]
+    : [['Alcance:', 'Todos los docentes'], ['Periodo:', `${fmtFecha(R.desde)} al ${fmtFecha(R.hasta)}`], ['Hora límite:', cfg.horaLimite]];
+  doc.autoTable({ startY: 48, body: info, theme: 'plain', styles: { fontSize: 10, cellPadding: 1 }, columnStyles: { 0: { fontStyle: 'bold', cellWidth: 32 } } });
+  const head = ['Fecha', 'Día', ...(R.doc ? [] : ['Docente']), 'Entrada', 'Estado', 'Min.', 'Salida', 'Permanencia'];
+  const estIdx = R.doc ? 3 : 4;
+  const body = R.rows.map(r => { const d = getDoc(r.dni); return [fmtFecha(r.fecha), DIAS[parseYmd(r.fecha).getDay()], ...(R.doc ? [] : [d ? fullName(d) : r.dni]), r.entrada, r.estado, r.minTarde || 0, r.salida || 'Sin marcar', dur(r.entrada, r.salida)]; });
+  doc.autoTable({
+    startY: doc.lastAutoTable.finalY + 4, head: [head], body: body.length ? body : [[{ content: 'Sin registros en el periodo', colSpan: head.length, styles: { halign: 'center' } }]],
+    theme: 'grid', styles: { fontSize: 8.5, cellPadding: 2 }, headStyles: { fillColor: [30, 58, 138], textColor: 255 }, alternateRowStyles: { fillColor: [248, 250, 252] },
+    didParseCell: h => { if (h.section === 'body' && h.column.index === estIdx && body.length) { h.cell.styles.fontStyle = 'bold'; h.cell.styles.textColor = h.cell.raw === 'PUNTUAL' ? [4, 120, 87] : [185, 28, 28]; } },
+    margin: { top: 20, bottom: 18 }
+  });
+  const s = R.stats;
+  let y = doc.lastAutoTable.finalY + 6;
+  if (y > 225) { doc.addPage(); y = 24; }
+  doc.autoTable({ startY: y, head: [['Resumen', 'Valor']], body: [['Total asistencias', s.total], ['Ingresos puntuales', s.punt], ['Tardanzas', s.tard], ['% de puntualidad', s.pct + '%'], ['Minutos de tardanza acumulados', s.minTot], ...(R.doc ? [['Inasistencias (días hábiles)', s.faltas]] : [])], theme: 'striped', headStyles: { fillColor: [51, 65, 85] }, styles: { fontSize: 9 }, tableWidth: 90 });
+  y = doc.lastAutoTable.finalY + 30;
+  if (y > 270) { doc.addPage(); y = 50; }
+  doc.setDrawColor(100); doc.setFontSize(9);
+  doc.line(20, y, 85, y); doc.line(W - 85, y, W - 20, y);
+  doc.text(R.doc ? fullName(R.doc) : 'Responsable de registro', 52.5, y + 5, { align: 'center' });
+  doc.text(R.doc ? `Firma del Docente · DNI ${R.doc.dni}` : 'Firma y sello', 52.5, y + 10, { align: 'center' });
+  doc.text(cfg.director || 'Director(a)', W - 52.5, y + 5, { align: 'center' });
+  doc.text('Director(a) · Firma y sello', W - 52.5, y + 10, { align: 'center' });
+  const pages = doc.getNumberOfPages();
+  for (let i = 1; i <= pages; i++) { doc.setPage(i); doc.setFontSize(8); doc.setTextColor(120); doc.text(`SICAD · Documento generado localmente · Página ${i} de ${pages}`, W / 2, 290, { align: 'center' }); }
+  doc.save(`Asistencia_${R.doc ? R.doc.dni : 'General'}_${R.desde}_${R.hasta}.pdf`);
+  toast('PDF generado', 'ok');
+}
+function exportXLSX() {
+  const R = getReportData(); if (R.error) return toast(R.error, 'error');
+  if (!window.XLSX) return toast('SheetJS no está disponible', 'error');
+  const cfg = db.config, s = R.stats;
+  const head = ['Fecha', 'Día', ...(R.doc ? [] : ['DNI', 'Docente']), 'Entrada', 'Estado', 'Minutos tarde', 'Salida', 'Permanencia', 'Método entrada'];
+  const rows = R.rows.map(r => { const d = getDoc(r.dni); return [fmtFecha(r.fecha), DIAS[parseYmd(r.fecha).getDay()], ...(R.doc ? [] : [r.dni, d ? fullName(d) : '']), r.entrada, r.estado, r.minTarde || 0, r.salida || 'Sin marcar', dur(r.entrada, r.salida), r.metodoEntrada || '']; });
+  const aoa = [[cfg.institucion], [cfg.ugel], [R.doc ? 'REPORTE INDIVIDUAL DE ASISTENCIA' : 'REPORTE GENERAL DE ASISTENCIA'],
+    ...(R.doc ? [['Docente', fullName(R.doc)], ['DNI', R.doc.dni], ['Especialidad', R.doc.especialidad]] : []),
+    ['Periodo', `${fmtFecha(R.desde)} al ${fmtFecha(R.hasta)}`], ['Hora límite', cfg.horaLimite], [], head, ...rows];
+  const ws = XLSX.utils.aoa_to_sheet(aoa);
+  ws['!cols'] = head.map((h, i) => ({ wch: h === 'Docente' ? 32 : i === 0 ? 14 : 13 }));
+  const ws2 = XLSX.utils.aoa_to_sheet([['Indicador', 'Valor'], ['Total asistencias', s.total], ['Puntuales', s.punt], ['Tardanzas', s.tard], ['% Puntualidad', s.pct / 100], ['Minutos de tardanza', s.minTot], ...(R.doc ? [['Inasistencias', s.faltas]] : [['Sin salida', s.sinSal]])]);
+  ws2['!cols'] = [{ wch: 26 }, { wch: 12 }]; if (ws2.B5) ws2.B5.z = '0%';
+  const wb = XLSX.utils.book_new();
+  XLSX.utils.book_append_sheet(wb, ws, 'Asistencia'); XLSX.utils.book_append_sheet(wb, ws2, 'Resumen');
+  XLSX.writeFile(wb, `Asistencia_${R.doc ? R.doc.dni : 'General'}_${R.desde}_${R.hasta}.xlsx`);
+  toast('Excel generado', 'ok');
+}
+$('#rp-pdf').onclick = exportPDF; $('#rp-xlsx').onclick = exportXLSX;
+
+/* =========================================================
+   MÓDULO 4: ANALÍTICA E IA PREDICTIVA
+   ========================================================= */
+function analyze(d, days = 45) {
+  const desde = ymd(addDays(new Date(), -days));
+  const regs = db.marcas.filter(m => m.dni === d.dni && m.fecha >= desde).sort((a, b) => a.fecha.localeCompare(b.fecha));
+  const n = regs.length;
+  const base = { d, n, lates: 0, rate: 0, prob: 0, score: 0, level: 'Sin datos', hallazgos: [], lates30: 0 };
+  if (n < 5) return base;
+  const L = regs.map(r => r.estado === 'TARDANZA' ? 1 : 0);
+  const lates = L.reduce((a, b) => a + b, 0), rate = lates / n;
+  let p = rate; for (const x of L) p = 0.3 * x + 0.7 * p;               // suavizado exponencial (EWMA)
+  const avg = a => a.length ? a.reduce((x, y) => x + y, 0) / a.length : 0;
+  const rec = L.slice(-10), prev = L.slice(-20, -10), trend = prev.length ? avg(rec) - avg(prev) : 0;
+  const byDay = Array(7).fill(0), totDay = Array(7).fill(0);
+  regs.forEach((r, i) => { const w = parseYmd(r.fecha).getDay(); totDay[w]++; byDay[w] += L[i]; });
+  let pDay = -1, pDayRate = 0;
+  for (let w = 1; w <= 5; w++) if (totDay[w] >= 2) { const rr = byDay[w] / totDay[w]; if (rr > pDayRate) { pDayRate = rr; pDay = w; } }
+  const dayPattern = pDay > 0 && byDay[pDay] >= 3 && pDayRate >= 0.6 && pDayRate >= rate * 1.8;
+  const mins = regs.map(r => r.minTarde || 0), xm = (n - 1) / 2, ym = avg(mins);
+  let num = 0, den = 0; mins.forEach((y, x) => { num += (x - xm) * (y - ym); den += (x - xm) ** 2; });
+  const slope = den ? num / den : 0;                                     // regresión lineal de minutos de retraso
+  let streak = 0; for (let i = L.length - 1; i >= 0 && L[i]; i--) streak++;
+  const avgMin = lates ? Math.round(mins.filter(m => m > 0).reduce((a, b) => a + b, 0) / lates) : 0;
+  const d30 = ymd(addDays(new Date(), -30)), lates30 = regs.filter(r => r.fecha >= d30 && r.estado === 'TARDANZA').length;
+  const score = Math.min(100, Math.round(rate * 45 + p * 30 + Math.max(0, trend) * 35 + (dayPattern ? 10 : 0) + Math.min(streak, 5) * 3 + (slope > 0.3 ? 5 : 0)));
+  const level = score >= 50 ? 'Alto' : score >= 25 ? 'Medio' : 'Bajo';
+  const H = [];
+  if (dayPattern) H.push(`Patrón recurrente: llega tarde el ${Math.round(pDayRate * 100)}% de los ${DIAS[pDay].toLowerCase()}.`);
+  if (trend >= 0.2) H.push(`Tendencia creciente: +${Math.round(trend * 100)} pts de tardanza en las últimas 10 jornadas.`);
+  if (streak >= 2) H.push(`${streak} tardanzas consecutivas recientes.`);
+  if (slope > 0.3) H.push('Los minutos de retraso aumentan progresivamente.');
+  if (rate >= 0.35) H.push(`Tardanza frecuente: ${Math.round(rate * 100)}% de sus ingresos (prom. ${avgMin} min).`);
+  if (lates30 >= db.config.umbralAlerta) H.push(`Superó el umbral institucional: ${lates30} tardanzas en 30 días.`);
+  return { d, n, lates, rate, prob: p, trend, score, level, hallazgos: H, lates30, avgMin, pDay: dayPattern ? pDay : -1 };
+}
+const RECO = {
+  Alto: 'Citar a entrevista con Dirección, registrar compromiso y monitorear semanalmente.',
+  Medio: 'Comunicación preventiva y seguimiento quincenal.',
+  Bajo: 'Sin acciones requeridas.'
+};
+let charts = {};
+function mkChart(id, cfg) { if (!window.Chart) return; charts[id]?.destroy(); charts[id] = new Chart($('#' + id), cfg); }
+RENDER.analitica = () => {
+  const today = ymd(new Date()), d30 = ymd(addDays(new Date(), -30));
+  const act = db.docentes.filter(d => d.estado === 'Activo');
+  const m30 = db.marcas.filter(m => m.fecha >= d30), hoy = db.marcas.filter(m => m.fecha === today);
+  const punt30 = m30.filter(m => m.estado === 'PUNTUAL').length;
+  const A = act.map(d => analyze(d)).sort((a, b) => b.score - a.score);
+  const alerts = A.filter(a => a.level === 'Alto' || a.level === 'Medio' || a.lates30 >= db.config.umbralAlerta);
+  const kp = [['Docentes activos', act.length, 'text-slate-900'], ['Presentes hoy', `${hoy.length}/${act.length}`, 'text-blue-900'], ['Puntualidad (30 d)', m30.length ? Math.round(punt30 / m30.length * 100) + '%' : '—', 'text-emerald-700'], ['Tardanzas (30 d)', m30.length - punt30, 'text-red-700'], ['Alertas activas', alerts.length, 'text-amber-600']];
+  $('#an-kpis').innerHTML = kp.map(([l, v, c]) => `<div class="bg-white rounded-2xl border border-slate-200 p-4 shadow-sm"><p class="text-xs text-slate-500 font-semibold">${l}</p><p class="text-3xl font-extrabold ${c} tabular-nums">${v}</p></div>`).join('');
+
+  const byDate = {}; m30.forEach(m => { (byDate[m.fecha] ||= [0, 0]); byDate[m.fecha][0]++; if (m.estado === 'PUNTUAL') byDate[m.fecha][1]++; });
+  const dates = Object.keys(byDate).sort();
+  mkChart('ch-trend', { type: 'line', data: { labels: dates.map(f => fmtFecha(f).slice(0, 5)), datasets: [{ label: '% puntual', data: dates.map(f => Math.round(byDate[f][1] / byDate[f][0] * 100)), borderColor: '#1e3a8a', backgroundColor: 'rgba(30,58,138,.08)', fill: true, tension: .35, pointRadius: 3 }] }, options: { maintainAspectRatio: false, plugins: { legend: { display: false } }, scales: { y: { min: 0, max: 100, ticks: { callback: v => v + '%' } } } } });
+  const wk = [1, 2, 3, 4, 5].map(w => m30.filter(m => m.estado === 'TARDANZA' && parseYmd(m.fecha).getDay() === w).length);
+  const mx = Math.max(...wk);
+  mkChart('ch-week', { type: 'bar', data: { labels: ['Lun', 'Mar', 'Mié', 'Jue', 'Vie'], datasets: [{ label: 'Tardanzas', data: wk, backgroundColor: wk.map(v => v === mx && v > 0 ? '#dc2626' : '#94a3b8'), borderRadius: 6 }] }, options: { maintainAspectRatio: false, plugins: { legend: { display: false } }, scales: { y: { beginAtZero: true, ticks: { precision: 0 } } } } });
+
+  const lv = { Alto: 'bg-red-100 text-red-800', Medio: 'bg-amber-100 text-amber-800', Bajo: 'bg-emerald-100 text-emerald-800', 'Sin datos': 'bg-slate-100 text-slate-600' };
+  $('#an-alerts').innerHTML = alerts.length ? alerts.map(a => `
+    <li class="px-5 py-4">
+      <div class="flex items-start justify-between gap-2"><p class="font-semibold text-sm">${esc(fullName(a.d))}</p><span class="shrink-0 text-xs font-bold px-2 py-0.5 rounded-full ${lv[a.level]}">Riesgo ${a.level} · ${a.score}</span></div>
+      <ul class="mt-2 space-y-1 text-xs text-slate-600 list-disc pl-4">${a.hallazgos.map(h => `<li>${esc(h)}</li>`).join('') || '<li>Indicadores en zona de vigilancia.</li>'}</ul>
+      <p class="mt-2 text-xs"><span class="font-semibold text-slate-700">Recomendación:</span> ${RECO[a.level === 'Bajo' ? 'Medio' : a.level]}</p>
+    </li>`).join('') : '<li class="px-5 py-10 text-center text-sm text-slate-500">Sin alertas. Todo el personal mantiene buena puntualidad.</li>';
+  $('#an-rank').innerHTML = A.map(a => `
+    <tr class="hover:bg-slate-50"><td class="px-4 py-2.5"><p class="font-semibold">${esc(fullName(a.d))}</p><p class="text-xs text-slate-500">${esc(a.d.especialidad)}</p></td>
+    <td class="px-4 py-2.5 text-right tabular-nums">${a.n}</td><td class="px-4 py-2.5 text-right tabular-nums">${a.lates}</td>
+    <td class="px-4 py-2.5 text-right tabular-nums">${Math.round(a.rate * 100)}%</td>
+    <td class="px-4 py-2.5 text-right"><div class="flex items-center justify-end gap-2"><div class="w-16 h-1.5 bg-slate-200 rounded-full overflow-hidden"><div class="h-full ${a.prob >= .4 ? 'bg-red-500' : a.prob >= .2 ? 'bg-amber-500' : 'bg-emerald-500'}" style="width:${Math.round(a.prob * 100)}%"></div></div><span class="tabular-nums text-xs w-8">${Math.round(a.prob * 100)}%</span></div></td>
+    <td class="px-4 py-2.5"><span class="text-xs font-bold px-2 py-0.5 rounded-full ${lv[a.level]}">${a.level}</span></td></tr>`).join('');
+};
+
+/* =========================================================
+   CONFIGURACIÓN Y RESPALDO
+   ========================================================= */
+RENDER.config = () => {
+  const c = db.config;
+  $('#cfg-inst').value = c.institucion; $('#cfg-ugel').value = c.ugel; $('#cfg-dir').value = c.director; $('#cfg-hora').value = c.horaLimite; $('#cfg-umbral').value = c.umbralAlerta;
+  const kb = (new Blob([JSON.stringify(db)]).size / 1024).toFixed(1);
+  $('#cfg-db').innerHTML = `Docentes: <b>${db.docentes.length}</b> · Registros de asistencia: <b>${db.marcas.length}</b> · Tamaño: <b>${kb} KB</b>`;
+};
+$('#cfg-form').addEventListener('submit', e => {
+  e.preventDefault();
+  let h = $('#cfg-hora').value; if (h.length === 5) h += ':00';
+  if (!/^\d{2}:\d{2}:\d{2}$/.test(h)) return toast('Hora límite inválida', 'error');
+  Object.assign(db.config, { institucion: $('#cfg-inst').value.trim(), ugel: $('#cfg-ugel').value.trim(), director: $('#cfg-dir').value.trim(), horaLimite: h, umbralAlerta: Math.max(1, parseInt($('#cfg-umbral').value, 10) || 3) });
+  save(); renderHeader(); tick(); toast('Parámetros guardados', 'ok');
+});
+$('#db-export').onclick = () => download(new Blob([JSON.stringify(db, null, 2)], { type: 'application/json' }), `SICAD_respaldo_${ymd(new Date())}.json`);
+$('#db-import').addEventListener('change', e => {
+  const f = e.target.files[0]; if (!f) return;
+  const r = new FileReader();
+  r.onload = () => {
+    try { const d = JSON.parse(r.result); if (!d.config || !Array.isArray(d.docentes) || !Array.isArray(d.marcas)) throw 0; db = d; save(); renderHeader(); RENDER.config(); toast('Respaldo importado correctamente', 'ok'); }
+    catch (err) { toast('Archivo de respaldo no válido', 'error'); }
+  };
+  r.readAsText(f); e.target.value = '';
+});
+$('#db-demo').onclick = async () => { if (await askConfirm('Se reemplazarán los datos actuales por datos de demostración. ¿Continuar?', 'Restaurar')) { db = seed(); save(); renderHeader(); RENDER.config(); toast('Datos de demostración restaurados', 'ok'); } };
+$('#db-clear').onclick = async () => { if (await askConfirm('Se borrarán TODOS los docentes y registros. Exporte un respaldo antes. ¿Continuar?', 'Borrar todo')) { db = { version: 1, config: db.config, docentes: [], marcas: [] }; save(); RENDER.config(); toast('Base de datos vaciada', 'info'); } };
+
+/* =========================================================
+   MÓDULO 5: ASISTENTE DE AYUDA CON IA LOCAL (RF-13-IA)
+   ========================================================= */
+const KB = [
+  { k: ['registrar docente', 'nuevo docente', 'agregar docente', 'crear docente', 'añadir', 'alta', 'inscribir'], go: 'docentes', a: 'Para registrar un docente: vaya a <b>Gestión de docentes</b> → <b>+ Nuevo docente</b>. Complete DNI (8 dígitos, único), nombres, apellidos y especialidad, y pulse <b>Guardar</b>.' },
+  { k: ['editar', 'modificar', 'corregir', 'cambiar nombre', 'actualizar docente'], go: 'docentes', a: 'En <b>Gestión de docentes</b>, ubique al docente con el buscador y pulse <b>Editar</b>. Si cambia el DNI, su historial se conserva automáticamente.' },
+  { k: ['eliminar', 'borrar docente', 'quitar'], go: 'docentes', a: 'Pulse <b>Eliminar</b> en la fila del docente. Se borrarán también sus registros. Si solo dejó de laborar, es mejor marcarlo como <b>Inactivo</b> para conservar el historial.' },
+  { k: ['dni', '8 digitos', 'invalido', 'no registrado', 'documento'], a: 'El DNI debe tener exactamente <b>8 dígitos numéricos</b> y ser único. Si aparece “DNI no registrado”, primero dé de alta al docente en Gestión de docentes.' },
+  { k: ['marcar', 'marcaje', 'entrada', 'salida', 'asistencia', 'registrar asistencia', 'doble'], go: 'marcaje', a: 'En <b>Marcaje</b>, escriba el DNI y presione <b>Enter</b>. El <b>primer</b> marcaje del día registra la <b>ENTRADA</b>; el <b>segundo</b>, la <b>SALIDA</b>. Un tercer intento se rechaza porque la jornada ya está completa.' },
+  { k: ['tardanza', 'puntual', 'hora limite', 'limite', 'tarde', 'horario', '7:45', '07:45'], go: 'config', a: () => `La hora límite actual es <b>${db.config.horaLimite}</b>. Si el ingreso es igual o anterior, se clasifica como <span class="text-emerald-700 font-bold">PUNTUAL</span>; si es posterior, como <span class="text-red-700 font-bold">TARDANZA</span>. Puede cambiarla en <b>Configuración</b>.` },
+  { k: ['qr', 'codigo', 'carnet', 'escanear', 'escaner'], go: 'docentes', a: 'Cada docente tiene un QR en <b>Docentes → QR</b> (descargable en PNG para imprimir en el carnet). Luego, en <b>Marcaje → Código QR</b>, pulse <b>Iniciar escáner</b>. Sin cámara, puede leer el QR desde una imagen.' },
+  { k: ['facial', 'rostro', 'biometri', 'camara', 'cara', 'reconocimiento', 'face'], go: 'docentes', a: 'Primero registre el rostro en <b>Docentes → Rostro → Capturar rostro</b>. Luego, en <b>Marcaje → Facial (IA)</b>, inicie la cámara y pulse <b>Reconocer y marcar</b>. Todo se procesa localmente con face-api.js. Si no hay cámara, use el <b>modo simulación</b>.' },
+  { k: ['permiso', 'no funciona la camara', 'camara bloqueada', 'denegado'], a: 'Si la cámara no inicia: permita el acceso en el ícono del candado de la barra de direcciones, cierre otras apps que usen la cámara y abra el sistema desde <b>http://localhost</b> o un archivo local en Chrome/Edge.' },
+  { k: ['pdf', 'imprimir', 'firma', 'informe', 'reporte', 'constancia'], go: 'informes', a: 'En <b>Informes</b>, escriba el DNI (o déjelo vacío para todos), elija el rango de fechas y pulse <b>Consultar</b>. Luego pulse <b>Descargar PDF</b>: incluye membrete institucional, resumen y campos de firma del docente y del director.' },
+  { k: ['excel', 'xlsx', 'hoja de calculo', 'exportar tabla'], go: 'informes', a: 'En <b>Informes</b>, tras consultar, pulse <b>Descargar Excel</b>. Se genera un archivo .xlsx con dos hojas: <b>Asistencia</b> (detalle) y <b>Resumen</b> (indicadores).' },
+  { k: ['historial', 'historico', 'consultar', 'fechas', 'rango'], go: 'informes', a: 'El historial individual está en <b>Informes</b>: filtre por DNI y fechas. También puede pulsar <b>Historial</b> en la tabla de docentes para ir directamente.' },
+  { k: ['inactivo', 'bloqueo', 'bloqueado', 'desactivar', 'activar', 'estado laboral', 'licencia'], go: 'docentes', a: 'Haga clic en la etiqueta <b>Activo/Inactivo</b> del docente para cambiar su estado. Un docente <b>Inactivo</b> no puede marcar asistencia (el sistema bloquea el marcaje).' },
+  { k: ['buscar', 'filtro', 'filtrar', 'especialidad'], go: 'docentes', a: 'En <b>Gestión de docentes</b> use el buscador (filtra en tiempo real por DNI, nombre o especialidad) y los selectores de estado y especialidad.' },
+  { k: ['alerta', 'prediccion', 'predictiva', 'riesgo', 'patron', 'inteligencia', 'algoritmo'], go: 'analitica', a: 'El motor predictivo local analiza 45 días por docente: tasa de tardanza, <b>suavizado exponencial</b> (probabilidad de tardanza mañana), tendencia reciente, patrón por día de la semana, rachas y regresión de minutos de retraso. Con ello calcula un índice de riesgo (0–100) y genera alertas en <b>Analítica IA</b>.' },
+  { k: ['quien', 'riesgo alto', 'mas tardanzas', 'impuntual', 'peor'], go: 'analitica', a: () => { const A = db.docentes.filter(d => d.estado === 'Activo').map(d => analyze(d)).filter(a => a.level !== 'Bajo' && a.level !== 'Sin datos').sort((a, b) => b.score - a.score).slice(0, 3); return A.length ? 'Docentes con mayor índice de riesgo:<br>' + A.map(a => `• <b>${esc(fullName(a.d))}</b> — riesgo ${a.level} (${a.score}), ${a.lates} tardanzas`).join('<br>') : 'Ningún docente presenta riesgo medio o alto actualmente.'; } },
+  { k: ['cuantos', 'resumen', 'hoy', 'estadistica', 'presentes', 'estado del dia'], a: () => { const f = ymd(new Date()), h = db.marcas.filter(m => m.fecha === f), act = db.docentes.filter(d => d.estado === 'Activo').length; return `Hoy: <b>${h.length}</b> de <b>${act}</b> docentes activos han marcado. Puntuales: <b>${h.filter(m => m.estado === 'PUNTUAL').length}</b> · Tardanzas: <b>${h.filter(m => m.estado === 'TARDANZA').length}</b> · Con salida: <b>${h.filter(m => m.salida).length}</b>.`; } },
+  { k: ['respaldo', 'backup', 'copia', 'importar', 'guardar datos', 'usb', 'perder datos', 'base de datos'], go: 'config', a: 'Los datos se guardan en el navegador de este equipo. En <b>Configuración → Exportar respaldo</b> descargue un archivo .json y guárdelo en un USB. Para restaurarlo use <b>Importar respaldo</b>.' },
+  { k: ['internet', 'offline', 'sin conexion', 'costo', 'gratis', 'pago', 'nube', 'servidor'], a: 'SICAD funciona <b>100% local</b> y su costo es <b>S/ 0</b>: no usa servidores ni suscripciones. Solo la primera carga de librerías y modelos faciales requiere internet; puede descargarlos a una carpeta local para operar totalmente offline.' },
+  { k: ['hola', 'buenos dias', 'buenas', 'saludos', 'hey'], a: '¡Hola! Soy el asistente SICAD-IA. Puedo ayudarle a registrar docentes, marcar asistencia, generar reportes o interpretar las alertas. ¿Qué necesita?' },
+  { k: ['gracias', 'genial', 'perfecto', 'excelente'], a: '¡Con gusto! Si tiene otra duda, aquí estaré.' }
+];
+const CHIPS = ['¿Cómo marco asistencia?', '¿Cómo genero un PDF?', 'Resumen de hoy', '¿Quién tiene riesgo alto?', 'Reconocimiento facial', 'Hacer respaldo'];
+const FAQ = [
+  ['¿Cómo funciona el doble marcaje?', 'El primer registro del día con un DNI es la ENTRADA; el siguiente es la SALIDA. Se exige al menos 1 minuto entre ambos para evitar duplicados accidentales.'],
+  ['¿Cuándo se considera tardanza?', 'Cuando la hora de entrada supera la hora límite configurada (por defecto 07:45:00). Se registran además los minutos de retraso.'],
+  ['¿Qué pasa si un docente está Inactivo?', 'El sistema bloquea su marcaje y muestra un aviso. Su historial se conserva para los informes.'],
+  ['¿El reconocimiento facial envía fotos a internet?', 'No. face-api.js procesa la imagen en el navegador y solo guarda un vector numérico (128 valores), nunca la foto.'],
+  ['¿Dónde se guardan los datos?', 'En el almacenamiento local del navegador (LocalStorage). Haga respaldos periódicos desde Configuración.'],
+  ['¿Cómo funciona la IA predictiva?', 'Combina tasa de tardanzas, suavizado exponencial, tendencia de las últimas 10 jornadas, patrón por día de la semana, rachas y regresión lineal de minutos de retraso en un índice de riesgo de 0 a 100.'],
+  ['¿Necesito pagar alguna licencia?', 'No. Todas las librerías usadas (Tailwind, jsPDF, SheetJS, Chart.js, face-api.js, html5-qrcode) son gratuitas y open source.']
+];
+function bestIntent(text) {
+  const t = norm(text); let best = null, bs = 0;
+  for (const it of KB) { let s = 0; for (const k of it.k) if (t.includes(norm(k))) s += k.length + (k.includes(' ') ? 4 : 0); if (s > bs) { bs = s; best = it; } }
+  return best;
+}
+function addMsg(html, who) {
+  const el = document.createElement('div');
+  el.className = who === 'user' ? 'flex justify-end' : 'flex justify-start';
+  el.innerHTML = `<div class="max-w-[85%] px-3.5 py-2.5 rounded-2xl text-sm leading-relaxed ${who === 'user' ? 'bg-blue-900 text-white rounded-br-sm' : 'bg-white border border-slate-200 text-slate-700 rounded-bl-sm'}">${html}</div>`;
+  $('#chat-log').appendChild(el); $('#chat-log').scrollTop = $('#chat-log').scrollHeight; return el;
+}
+function ask(q) {
+  q = q.trim(); if (!q) return;
+  addMsg(esc(q), 'user');
+  const typing = addMsg('<span class="typing"><span>●</span><span>●</span><span>●</span></span>', 'bot');
+  setTimeout(() => {
+    typing.remove();
+    const it = bestIntent(q);
+    if (!it) { addMsg('No estoy seguro de haber entendido. Pruebe con palabras como <b>marcar</b>, <b>docente</b>, <b>PDF</b>, <b>Excel</b>, <b>QR</b>, <b>facial</b>, <b>tardanza</b> o <b>respaldo</b>.', 'bot'); return; }
+    const ans = typeof it.a === 'function' ? it.a() : it.a;
+    const el = addMsg(ans + (it.go ? `<br><button data-goto="${it.go}" class="mt-2 text-xs font-semibold text-blue-900 underline">Ir a ${NAV.find(n => n.id === it.go).short} →</button>` : ''), 'bot');
+    el.querySelector('[data-goto]')?.addEventListener('click', ev => { closeModal('modal-help'); go(ev.target.dataset.goto); });
+  }, 450);
+}
+function setHTab(t) {
+  $$('.h-tab').forEach(b => { const a = b.dataset.htab === t; b.setAttribute('aria-selected', a); b.classList.toggle('text-blue-900', a); b.classList.toggle('border-b-2', a); b.classList.toggle('border-blue-900', a); b.classList.toggle('text-slate-500', !a); });
+  $$('.h-panel').forEach(p => p.classList.toggle('hidden', p.id !== 'htab-' + t));
+}
+$$('.h-tab').forEach(b => b.addEventListener('click', () => setHTab(b.dataset.htab)));
+$('#chat-chips').innerHTML = CHIPS.map(c => `<button type="button" class="text-xs px-3 py-1.5 rounded-full bg-slate-100 hover:bg-slate-200 font-medium">${c}</button>`).join('');
+$('#chat-chips').addEventListener('click', e => { if (e.target.tagName === 'BUTTON') ask(e.target.textContent); });
+$('#htab-faq').innerHTML = FAQ.map(([q, a]) => `<details class="group border border-slate-200 rounded-xl"><summary class="cursor-pointer list-none px-4 py-3 font-semibold text-sm flex justify-between items-center">${q}<span class="text-slate-400 group-open:rotate-45 transition text-lg">+</span></summary><p class="px-4 pb-4 text-sm text-slate-600">${a}</p></details>`).join('');
+$('#chat-form').addEventListener('submit', e => { e.preventDefault(); ask($('#chat-in').value); $('#chat-in').value = ''; });
+$('#chat-in').addEventListener('keydown', e => { if (e.key === 'Enter' && (e.nativeEvent?.isComposing || e.isComposing || e.keyCode === 229)) e.preventDefault(); });
+let helpInit = false;
+$('#help-fab').onclick = () => {
+  openModal('modal-help'); setHTab('chat');
+  if (!helpInit) { helpInit = true; addMsg(`Hola, soy <b>SICAD-IA</b>, su asistente local. Estoy viendo la sección <b>${NAV.find(n => n.id === current).short}</b>. ¿En qué le ayudo?`, 'bot'); }
+  setTimeout(() => $('#chat-in').focus(), 50);
+};
+
+/* =========================================================
+   INICIO
+   ========================================================= */
+RENDER.marcaje = () => { renderHoy(); renderFaceInfo(); };
+renderHeader(); tick(); setInterval(tick, 1000);
+idleResult(); setTab('dni'); go('marcaje');
+</script>
+</body>
+</html>
